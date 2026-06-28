@@ -9,12 +9,13 @@ from app import create_app, db
 
 
 @pytest.fixture(scope="function")
-def app():
+def app(tmp_path):
     flask_app = create_app(
         {
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
             "SQLALCHEMY_TRACK_MODIFICATIONS": False,
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
         }
     )
 

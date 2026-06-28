@@ -29,6 +29,11 @@ def create_app(test_config=None):
     )
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["UPLOAD_FOLDER"] = os.getenv(
+        "UPLOAD_FOLDER",
+        str(backend_dir / "uploads"),
+    )
+    app.config["MAX_DOCUMENT_SIZE"] = 5 * 1024 * 1024
 
     if test_config:
         app.config.update(test_config)
