@@ -1,4 +1,7 @@
-from pathlib import Path
+﻿from pathlib import Path
+from datetime import UTC, datetime, timedelta
+import secrets
+import threading
 
 import bcrypt
 from flask import current_app
@@ -7,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app import db
 from app.models.tienda import Tienda
+from app.models.token_verificacion import TokenVerificacion
 from app.models.usuario import Usuario
 from app.repositories.auth_repository import AuthRepository
 from app.utils.file_validation import FileValidationError, validate_store_document
@@ -54,7 +58,11 @@ class AuthService:
 
         try:
             db.session.add(usuario)
+            db.session.flush()
+            token_verificacion = AuthService._crear_token_verificacion(usuario)
+            db.session.add(token_verificacion)
             db.session.commit()
+            AuthService._enviar_correo_verificacion_async(usuario, token_verificacion.token)
             return {
                 "success": True,
                 "data": usuario.to_public_dict(),
@@ -129,7 +137,11 @@ class AuthService:
         try:
             AuthRepository.agregar_usuario(usuario)
             AuthRepository.agregar_tienda(tienda)
+            AuthRepository.flush()
+            token_verificacion = AuthService._crear_token_verificacion(usuario)
+            AuthRepository.agregar_token_verificacion(token_verificacion)
             AuthRepository.commit()
+            AuthService._enviar_correo_verificacion_async(usuario, token_verificacion.token)
             return {
                 "success": True,
                 "data": tienda.to_public_dict(),
@@ -154,6 +166,138 @@ class AuthService:
                 "error": "DATABASE_ERROR",
                 "message": "No se pudo registrar la tienda.",
             }
+
+    @staticmethod
+    def verificar_correo(token):
+        token_verificacion = AuthRepository.buscar_token_verificacion(token)
+        if not token_verificacion:
+            return {
+                "success": False,
+                "data": {},
+                "error": "NOT_FOUND",
+                "message": "Token invalido o inexistente.",
+            }
+
+        if token_verificacion.usado:
+            return {
+                "success": False,
+                "data": {},
+                "error": "TOKEN_USED",
+                "message": "El token ya fue usado.",
+            }
+
+        if token_verificacion.expira_en <= AuthService._utcnow():
+            return {
+                "success": False,
+                "data": {},
+                "error": "TOKEN_EXPIRED",
+                "message": "El token ha expirado.",
+            }
+
+        try:
+            token_verificacion.usuario.estado = "ACTIVO"
+            token_verificacion.usado = True
+            AuthRepository.commit()
+            return {
+                "success": True,
+                "data": token_verificacion.usuario.to_public_dict(),
+                "error": None,
+                "message": "Correo verificado correctamente.",
+            }
+        except SQLAlchemyError:
+            AuthRepository.rollback()
+            return {
+                "success": False,
+                "data": {},
+                "error": "DATABASE_ERROR",
+                "message": "No se pudo verificar el correo.",
+            }
+
+    @staticmethod
+    def reenviar_verificacion(data):
+        usuario = AuthRepository.buscar_usuario_por_correo(data["correo"])
+        if not usuario:
+            return {
+                "success": False,
+                "data": {},
+                "error": "NOT_FOUND",
+                "message": "Usuario no encontrado.",
+            }
+
+        if usuario.estado == "ACTIVO":
+            return {
+                "success": False,
+                "data": {},
+                "error": "CONFLICT",
+                "message": "La cuenta ya se encuentra activa.",
+            }
+
+        if usuario.estado != "PENDIENTE_VERIFICACION":
+            return {
+                "success": False,
+                "data": {},
+                "error": "CONFLICT",
+                "message": "La cuenta no permite reenvio de verificacion.",
+            }
+
+        try:
+            for token_anterior in AuthRepository.buscar_tokens_activos_usuario(usuario.id):
+                token_anterior.usado = True
+
+            token_verificacion = AuthService._crear_token_verificacion(usuario)
+            AuthRepository.agregar_token_verificacion(token_verificacion)
+            AuthRepository.commit()
+            AuthService._enviar_correo_verificacion_async(usuario, token_verificacion.token)
+            return {
+                "success": True,
+                "data": {"correo": usuario.correo},
+                "error": None,
+                "message": "Correo de verificacion reenviado correctamente.",
+            }
+        except SQLAlchemyError:
+            AuthRepository.rollback()
+            return {
+                "success": False,
+                "data": {},
+                "error": "DATABASE_ERROR",
+                "message": "No se pudo reenviar el correo de verificacion.",
+            }
+
+    @staticmethod
+    def _utcnow():
+        return datetime.now(UTC).replace(tzinfo=None)
+
+    @staticmethod
+    def _crear_token_verificacion(usuario):
+        return TokenVerificacion(
+            usuario=usuario,
+            token=secrets.token_hex(32),
+            tipo="EMAIL_VERIFICATION",
+            expira_en=AuthService._utcnow() + timedelta(hours=24),
+            usado=False,
+        )
+
+    @staticmethod
+    def _enviar_correo_verificacion_async(usuario, token):
+        if current_app.config.get("TESTING"):
+            return
+
+        app = current_app._get_current_object()
+        thread = threading.Thread(
+            target=AuthService._enviar_correo_verificacion,
+            args=(app, usuario.correo, token),
+            daemon=True,
+        )
+        thread.start()
+
+    @staticmethod
+    def _enviar_correo_verificacion(app, correo, token):
+        try:
+            frontend_url = app.config.get("FRONTEND_URL") or "http://localhost:5173"
+            enlace = f"{frontend_url}/verificar?token={token}"
+            app.logger.info("Enlace de verificacion para %s: %s", correo, enlace)
+        except Exception:
+            app.logger.exception("No se pudo enviar correo de verificacion")
 
     @staticmethod
     def _validar_conflictos_tienda(data):
@@ -197,3 +341,5 @@ class AuthService:
             Path(ruta_absoluta).unlink(missing_ok=True)
         except OSError:
             current_app.logger.exception("No se pudo eliminar archivo de rollback")
+
+

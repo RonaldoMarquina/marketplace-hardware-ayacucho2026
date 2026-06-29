@@ -1,9 +1,13 @@
-from flask import current_app, jsonify, request
-from marshmallow import RAISE, ValidationError
+﻿from flask import current_app, jsonify, request
+from marshmallow import RAISE, Schema, ValidationError, fields
 
 from app.schemas.tienda_schema import RegistroTiendaSchema
 from app.schemas.usuario_schema import RegistroUsuarioSchema
 from app.services.auth_service import AuthService
+
+
+class ReenvioVerificacionSchema(Schema):
+    correo = fields.Email(required=True)
 
 
 def registrar_usuario_controller():
@@ -81,3 +85,66 @@ def registrar_tienda_controller():
         "DATABASE_ERROR": 500,
     }
     return jsonify(respuesta), status_by_error.get(respuesta.get("error"), 500)
+
+
+def verificar_correo_controller():
+    token = request.args.get("token", "").strip()
+    if not token:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": "El token es obligatorio.",
+        }), 400
+
+    try:
+        respuesta = AuthService.verificar_correo(token)
+    except Exception:
+        current_app.logger.exception("Error inesperado al verificar correo")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    status_by_error = {
+        "NOT_FOUND": 404,
+        "TOKEN_USED": 409,
+        "TOKEN_EXPIRED": 410,
+        "DATABASE_ERROR": 500,
+    }
+    return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)
+
+
+def reenviar_verificacion_controller():
+    request_data = request.get_json(silent=True) or {}
+    schema = ReenvioVerificacionSchema()
+
+    try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), 400
+
+    try:
+        respuesta = AuthService.reenviar_verificacion(datos_validados)
+    except Exception:
+        current_app.logger.exception("Error inesperado al reenviar verificacion")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    status_by_error = {
+        "NOT_FOUND": 404,
+        "CONFLICT": 409,
+        "DATABASE_ERROR": 500,
+    }
+    return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)
