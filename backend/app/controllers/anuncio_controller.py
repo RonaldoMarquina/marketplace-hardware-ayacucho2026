@@ -45,8 +45,44 @@ def publicar_anuncio_controller():
     return jsonify(respuesta), status_by_error.get(respuesta.get("error"), 500)
 
 
+def subir_media_controller(anuncio_id):
+    # Los archivos llegan por multipart/form-data. El controller solo los toma
+    # y el service valida propiedad, limites, mimetype real y persistencia.
+    files = request.files.getlist("media") or request.files.getlist("files")
+
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.subir_media(
+            anuncio_id,
+            usuario_id,
+            files,
+            current_app.config["UPLOAD_FOLDER"],
+        )
+    except Exception:
+        current_app.logger.exception("Error inesperado al cargar media")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    if respuesta.get("success"):
+        return jsonify(respuesta), 201
+
+    status_by_error = {
+        "MISSING_FILE": 400,
+        "FORBIDDEN": 403,
+        "NOT_FOUND": 404,
+        "CONFLICT": 409,
+        "FILE_TOO_LARGE": 413,
+        "INVALID_FILE_TYPE": 422,
+        "TOO_MANY_FILES": 422,
+        "DATABASE_ERROR": 500,
+    }
+    return jsonify(respuesta), status_by_error.get(respuesta.get("error"), 500)
+
+
 def _hay_campos_obligatorios(messages):
     texto = str(messages).lower()
     return "obligatori" in texto or "missing" in texto or "required" in texto
-
-

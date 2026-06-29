@@ -164,21 +164,23 @@ CREATE TABLE anuncios (
 
 
 -- ------------------------------------------------------------
--- 5. IMÃGENES DE ANUNCIO
--- HU-06 (carga de imÃ¡genes), HU-11 (detalle)
+-- 5. MEDIA DE ANUNCIO
+-- HU-06 (carga de imagenes/videos), HU-11 (detalle)
 -- ------------------------------------------------------------
-CREATE TABLE imagenes_anuncio (
+CREATE TABLE media_anuncio (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     anuncio_id      INT UNSIGNED    NOT NULL,
+    tipo_media      ENUM('imagen', 'video') NOT NULL,
     ruta_relativa   VARCHAR(500)    NOT NULL,               -- relativa, nunca absoluta
-    es_principal    TINYINT(1)      NOT NULL DEFAULT 0,
-    orden           TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    es_principal    TINYINT(1)      NOT NULL DEFAULT 0,     -- solo imagen puede ser principal
+    orden           TINYINT UNSIGNED NULL,                  -- solo aplica a imagenes; video = NULL
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    INDEX idx_imagenes_anuncio (anuncio_id),
+    INDEX idx_media_anuncio      (anuncio_id),
+    INDEX idx_media_tipo         (tipo_media),
 
-    CONSTRAINT fk_imagenes_anuncio
+    CONSTRAINT fk_media_anuncio
         FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -291,5 +293,6 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- moderacion_log      â†’ HU-13
 -- contactos_log       â†’ HU-12
 -- ============================================================
+
 
 
