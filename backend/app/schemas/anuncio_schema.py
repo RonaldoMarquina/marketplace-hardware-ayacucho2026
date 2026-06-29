@@ -93,5 +93,66 @@ class CrearAnuncioSchema(Schema):
             )
 
 
+class EditarAnuncioSchema(Schema):
+    """Valida el PATCH parcial de HU-07 solo sobre campos editables."""
+
+    titulo = fields.String(validate=validate.Length(min=1, max=100))
+    categoria = fields.String(validate=validate.OneOf(CATEGORIAS_ANUNCIO))
+    subcategoria = fields.String(validate=validate.OneOf(SUBCATEGORIAS_ANUNCIO))
+    condicion = fields.String(validate=validate.OneOf(CONDICIONES_ANUNCIO))
+    precio = fields.Decimal(as_string=False)
+    descripcion = fields.String(validate=validate.Length(min=1))
+    especificaciones = fields.Dict(
+        keys=fields.String(),
+        values=fields.Raw(allow_none=True),
+        allow_none=True,
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+
+        datos = data.copy()
+        for campo in ("titulo", "categoria", "subcategoria", "condicion", "descripcion"):
+            if isinstance(datos.get(campo), str):
+                datos[campo] = datos[campo].strip()
+
+        if isinstance(datos.get("categoria"), str):
+            datos["categoria"] = datos["categoria"].upper()
+
+        if isinstance(datos.get("subcategoria"), str):
+            datos["subcategoria"] = _normalizar_taxonomia(datos["subcategoria"])
+
+        if isinstance(datos.get("condicion"), str):
+            datos["condicion"] = datos["condicion"].upper()
+
+        return datos
+
+    @validates("precio")
+    def validar_precio(self, value, **kwargs):
+        try:
+            precio = Decimal(value)
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValidationError("El precio debe ser numerico.") from exc
+
+        if precio <= 0:
+            raise ValidationError("El precio debe ser mayor que 0.")
+
+        if precio.as_tuple().exponent < -2:
+            raise ValidationError("El precio no puede tener mas de 2 decimales.")
+
+
+class ReordenarMediaSchema(Schema):
+    """Valida la lista ordenada de IDs de imagenes."""
+
+    orden = fields.List(
+        fields.Integer(strict=True),
+        required=True,
+        validate=validate.Length(min=1),
+        error_messages={"required": "El campo orden es obligatorio."},
+    )
+
+
 def _normalizar_taxonomia(value):
     return value.upper().replace(" ", "_").replace("-", "_")

@@ -33,12 +33,39 @@ class AnuncioRepository:
         return 0 if max_orden is None else max_orden + 1
 
     @staticmethod
+    def listar_media_por_anuncio(anuncio_id):
+        return MediaAnuncio.query.filter_by(anuncio_id=anuncio_id).order_by(
+            MediaAnuncio.tipo_media.asc(),
+            MediaAnuncio.orden.asc().nullslast(),
+            MediaAnuncio.id.asc(),
+        ).all()
+
+    @staticmethod
+    def listar_imagenes_por_anuncio(anuncio_id):
+        return MediaAnuncio.query.filter_by(
+            anuncio_id=anuncio_id,
+            tipo_media="imagen",
+        ).order_by(MediaAnuncio.orden.asc(), MediaAnuncio.id.asc()).all()
+
+    @staticmethod
+    def buscar_media_de_anuncio(anuncio_id, media_id):
+        return MediaAnuncio.query.filter_by(anuncio_id=anuncio_id, id=media_id).first()
+
+    @staticmethod
     def agregar(anuncio):
         db.session.add(anuncio)
 
     @staticmethod
     def agregar_media(media):
         db.session.add(media)
+
+    @staticmethod
+    def eliminar_media(media):
+        db.session.delete(media)
+
+    @staticmethod
+    def flush():
+        db.session.flush()
 
     @staticmethod
     def commit():

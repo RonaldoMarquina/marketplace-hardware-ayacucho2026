@@ -1,9 +1,20 @@
-﻿from flask import current_app, jsonify, request
+from flask import current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity
 from marshmallow import RAISE, ValidationError
 
-from app.schemas.anuncio_schema import CrearAnuncioSchema
+from app.schemas.anuncio_schema import CrearAnuncioSchema, EditarAnuncioSchema, ReordenarMediaSchema
 from app.services.anuncio_service import AnuncioService
+
+
+EDITABLE_FIELDS = {
+    "titulo",
+    "categoria",
+    "subcategoria",
+    "descripcion",
+    "condicion",
+    "precio",
+    "especificaciones",
+}
 
 
 def publicar_anuncio_controller():
@@ -34,15 +45,69 @@ def publicar_anuncio_controller():
             "message": "Error interno del servidor.",
         }), 500
 
-    if respuesta.get("success"):
-        return jsonify(respuesta), 201
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=201)
 
-    status_by_error = {
-        "FORBIDDEN": 403,
-        "NOT_FOUND": 404,
-        "DATABASE_ERROR": 500,
-    }
-    return jsonify(respuesta), status_by_error.get(respuesta.get("error"), 500)
+
+def editar_anuncio_controller(anuncio_id):
+    request_data = request.get_json(silent=True)
+    filtered_data = _solo_campos_editables(request_data)
+    schema = EditarAnuncioSchema()
+
+    try:
+        datos_validados = schema.load(filtered_data, unknown=RAISE)
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), 422
+
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.editar_anuncio(anuncio_id, usuario_id, datos_validados)
+    except Exception:
+        current_app.logger.exception("Error inesperado al editar anuncio")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
+
+
+def desactivar_anuncio_controller(anuncio_id):
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.desactivar_anuncio(anuncio_id, usuario_id)
+    except Exception:
+        current_app.logger.exception("Error inesperado al desactivar anuncio")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
+
+
+def reactivar_anuncio_controller(anuncio_id):
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.reactivar_anuncio(anuncio_id, usuario_id)
+    except Exception:
+        current_app.logger.exception("Error inesperado al reactivar anuncio")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
 
 
 def subir_media_controller(anuncio_id):
@@ -67,10 +132,100 @@ def subir_media_controller(anuncio_id):
             "message": "Error interno del servidor.",
         }), 500
 
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=201)
+
+
+def reordenar_media_controller(anuncio_id):
+    request_data = request.get_json(silent=True) or {}
+    schema = ReordenarMediaSchema()
+
+    try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), 422
+
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.reordenar_media(anuncio_id, usuario_id, datos_validados["orden"])
+    except Exception:
+        current_app.logger.exception("Error inesperado al reordenar media")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
+
+
+def eliminar_media_controller(anuncio_id, media_id):
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.eliminar_media(
+            anuncio_id,
+            media_id,
+            usuario_id,
+            current_app.config["UPLOAD_FOLDER"],
+        )
+    except Exception:
+        current_app.logger.exception("Error inesperado al eliminar media")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
+
+
+def reemplazar_media_controller(anuncio_id, media_id):
+    file_storage = request.files.get("media") or request.files.get("file")
+
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.reemplazar_media(
+            anuncio_id,
+            media_id,
+            usuario_id,
+            file_storage,
+            current_app.config["UPLOAD_FOLDER"],
+        )
+    except Exception:
+        current_app.logger.exception("Error inesperado al reemplazar media")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
+
+
+def _hay_campos_obligatorios(messages):
+    texto = str(messages).lower()
+    return "obligatori" in texto or "missing" in texto or "required" in texto
+
+
+def _solo_campos_editables(request_data):
+    if not isinstance(request_data, dict):
+        return {}
+    return {campo: valor for campo, valor in request_data.items() if campo in EDITABLE_FIELDS}
+
+
+def _status_for_anuncio_response(respuesta, success_status):
     if respuesta.get("success"):
-        return jsonify(respuesta), 201
+        return success_status
 
     status_by_error = {
+        "EMPTY_BODY": 400,
         "MISSING_FILE": 400,
         "FORBIDDEN": 403,
         "NOT_FOUND": 404,
@@ -78,11 +233,8 @@ def subir_media_controller(anuncio_id):
         "FILE_TOO_LARGE": 413,
         "INVALID_FILE_TYPE": 422,
         "TOO_MANY_FILES": 422,
+        "VALIDATION_ERROR": 422,
+        "FILE_DELETE_ERROR": 500,
         "DATABASE_ERROR": 500,
     }
-    return jsonify(respuesta), status_by_error.get(respuesta.get("error"), 500)
-
-
-def _hay_campos_obligatorios(messages):
-    texto = str(messages).lower()
-    return "obligatori" in texto or "missing" in texto or "required" in texto
+    return status_by_error.get(respuesta.get("error"), 500)

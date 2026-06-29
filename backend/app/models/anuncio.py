@@ -127,6 +127,12 @@ class Anuncio(db.Model):
         default="ACTIVO",
         index=True,
     )
+    reactivaciones_count = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     created_at = db.Column(
         db.DateTime,
         nullable=False,
@@ -150,11 +156,15 @@ class Anuncio(db.Model):
         return {
             "id": self.id,
             "titulo": self.titulo,
+            "descripcion": self.descripcion,
             "categoria": self.categoria,
             "subcategoria": self.subcategoria,
             "condicion": self.condicion,
             "precio": precio,
+            "especificaciones": self.especificaciones,
             "estado": self.estado,
+            "reactivaciones_count": self.reactivaciones_count,
             "usuario_id": self.usuario_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

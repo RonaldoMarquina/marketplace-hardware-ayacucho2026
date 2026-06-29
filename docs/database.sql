@@ -141,6 +141,7 @@ CREATE TABLE anuncios (
                             'VENDIDO',
                             'BLOQUEADO'
                         )                   NOT NULL DEFAULT 'ACTIVO',
+    reactivaciones_count INT UNSIGNED       NOT NULL DEFAULT 0,
     created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP
                                             ON UPDATE CURRENT_TIMESTAMP,
@@ -161,6 +162,11 @@ CREATE TABLE anuncios (
 
 -- Ãndice funcional para filtrado por spec socket (HU-10, activar si BD > 1000 registros)
 -- ALTER TABLE anuncios ADD INDEX idx_spec_socket ((JSON_UNQUOTE(JSON_EXTRACT(especificaciones, '$.socket'))));
+
+-- Migracion para bases ya existentes creadas antes de HU-07.
+-- Ejecutar solo si la tabla anuncios ya existe y aun no tiene reactivaciones_count.
+-- ALTER TABLE anuncios
+-- ADD COLUMN reactivaciones_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER estado;
 
 
 -- ------------------------------------------------------------
