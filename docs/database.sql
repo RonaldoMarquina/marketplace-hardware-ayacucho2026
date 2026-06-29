@@ -1,5 +1,5 @@
--- ============================================================
---  HardwareAyacucho — Esquema de Base de Datos MySQL
+﻿-- ============================================================
+--  HardwareAyacucho â€” Esquema de Base de Datos MySQL
 --  Generado desde HU-01 al HU-13
 -- ============================================================
 
@@ -14,14 +14,14 @@ SET SQL_MODE = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO';
 
 -- ------------------------------------------------------------
 -- 1. USUARIOS
--- HU-01 (registro estándar), HU-02 (tienda), HU-04 (login)
+-- HU-01 (registro estÃ¡ndar), HU-02 (tienda), HU-04 (login)
 -- ------------------------------------------------------------
 CREATE TABLE usuarios (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     nombre          VARCHAR(100)    NOT NULL,
     correo          VARCHAR(150)    NOT NULL,
     password_hash   VARCHAR(255)    NOT NULL,               -- bcrypt, salt=10
-    telefono        CHAR(9)         NULL,                   -- 9 dígitos, puede ser NULL
+    telefono        CHAR(9)         NULL,                   -- 9 dÃ­gitos, puede ser NULL
     rol             ENUM(
                         'USER_ESTANDAR',
                         'TIENDA_VERIFICADA',
@@ -71,13 +71,13 @@ CREATE TABLE tiendas (
 
 
 -- ------------------------------------------------------------
--- 3. TOKENS DE VERIFICACIÓN
--- HU-03 (verificación de correo electrónico)
+-- 3. TOKENS DE VERIFICACIÃ“N
+-- HU-03 (verificaciÃ³n de correo electrÃ³nico)
 -- ------------------------------------------------------------
 CREATE TABLE tokens_verificacion (
     id          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     usuario_id  INT UNSIGNED    NOT NULL,
-    token       CHAR(64)        NOT NULL,                   -- secrets.token_hex(32) → 64 hex chars
+    token       CHAR(64)        NOT NULL,                   -- secrets.token_hex(32) â†’ 64 hex chars
     tipo        ENUM(
                     'EMAIL_VERIFICATION'
                 )               NOT NULL DEFAULT 'EMAIL_VERIFICATION',
@@ -86,7 +86,7 @@ CREATE TABLE tokens_verificacion (
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    INDEX       idx_tokens_token      (token),              -- HU-03: índice requerido
+    INDEX       idx_tokens_token      (token),              -- HU-03: Ã­ndice requerido
     INDEX       idx_tokens_usuario    (usuario_id),
     CONSTRAINT fk_tokens_usuario
         FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
@@ -104,31 +104,37 @@ CREATE TABLE anuncios (
     usuario_id          INT UNSIGNED        NOT NULL,
     titulo              VARCHAR(100)        NOT NULL,
     descripcion         TEXT                NOT NULL,
+
+    -- Categoria: grupo macro interno para organizar grandes secciones del marketplace.
     categoria           ENUM(
-                            'PROCESADOR',
-                            'PLACA_MADRE',
-                            'MEMORIA_RAM',
-                            'TARJETA_GRAFICA',
-                            'ALMACENAMIENTO',
-                            'FUENTE_PODER',
-                            'CASE',
-                            'MONITOR',
+                            'COMPONENTES',
                             'REFRIGERACION',
-                            'TARJETA_RED',
-                            'UPS_REGULADOR',
-                            'SILLA_GAMER',
-                            'ACCESORIO',
-                            'LAPTOP',
-                            'PERIFERICO'
+                            'GABINETES',
+                            'PERIFERICOS',
+                            'MONITORES',
+                            'REDES',
+                            'MOBILIARIO',
+                            'ALMACENAMIENTO_EXTERNO',
+                            'ACCESORIOS',
+                            'PORTATILES'
                         )                   NOT NULL,
+
+    -- Subcategoria: clasificacion visible/buscable/filtrable por el usuario.
+    -- Ejemplos: PROCESADOR, GPU, TECLADO, ROUTER, LAPTOP.
+    subcategoria        VARCHAR(80)         NOT NULL,
+
     condicion           ENUM(
                             'NUEVO',
                             'COMO_NUEVO',
                             'USADO',
                             'PARA_REPUESTOS'
                         )                   NOT NULL,
-    precio              DECIMAL(10, 2)      NOT NULL,       -- > 0, máx 2 decimales
-    especificaciones    JSON                NULL,           -- objeto libre por categoría
+    precio              DECIMAL(10, 2)      NOT NULL,       -- > 0, max 2 decimales
+
+    -- Especificaciones: solo atributos tecnicos puros, variables por subcategoria.
+    -- No guardar aqui categoria/subcategoria/tipo_componente.
+    especificaciones    JSON                NULL,
+
     estado              ENUM(
                             'ACTIVO',
                             'INACTIVO',
@@ -140,10 +146,11 @@ CREATE TABLE anuncios (
                                             ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    INDEX idx_anuncios_estado      (estado),               -- HU-09: requerido
-    INDEX idx_anuncios_created_at  (created_at),           -- HU-09: requerido
-    INDEX idx_anuncios_usuario     (usuario_id),
-    INDEX idx_anuncios_categoria   (categoria),
+    INDEX idx_anuncios_estado       (estado),               -- HU-09: requerido
+    INDEX idx_anuncios_created_at   (created_at),           -- HU-09: requerido
+    INDEX idx_anuncios_usuario      (usuario_id),
+    INDEX idx_anuncios_categoria    (categoria),
+    INDEX idx_anuncios_subcategoria (subcategoria),         -- HU-05/HU-10: busqueda por producto visible
 
     CONSTRAINT fk_anuncios_usuario
         FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
@@ -152,13 +159,13 @@ CREATE TABLE anuncios (
     CONSTRAINT chk_precio_positivo CHECK (precio > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Índice funcional para filtrado por spec socket (HU-10, activar si BD > 1000 registros)
+-- Ãndice funcional para filtrado por spec socket (HU-10, activar si BD > 1000 registros)
 -- ALTER TABLE anuncios ADD INDEX idx_spec_socket ((JSON_UNQUOTE(JSON_EXTRACT(especificaciones, '$.socket'))));
 
 
 -- ------------------------------------------------------------
--- 5. IMÁGENES DE ANUNCIO
--- HU-06 (carga de imágenes), HU-11 (detalle)
+-- 5. IMÃGENES DE ANUNCIO
+-- HU-06 (carga de imÃ¡genes), HU-11 (detalle)
 -- ------------------------------------------------------------
 CREATE TABLE imagenes_anuncio (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -179,7 +186,7 @@ CREATE TABLE imagenes_anuncio (
 
 -- ------------------------------------------------------------
 -- 6. REPORTES
--- HU-13 (panel de moderación — reportar anuncio)
+-- HU-13 (panel de moderaciÃ³n â€” reportar anuncio)
 -- ------------------------------------------------------------
 CREATE TABLE reportes (
     id          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -187,7 +194,7 @@ CREATE TABLE reportes (
     usuario_id  INT UNSIGNED    NOT NULL,               -- quien reporta
     motivo      ENUM(
                     'FRAUDE',
-                    'PRECIO_ENGAÑOSO',
+                    'PRECIO_ENGAÃ‘OSO',
                     'PRODUCTO_FALSO',
                     'CONTENIDO_INAPROPIADO',
                     'DUPLICADO',
@@ -219,8 +226,8 @@ CREATE TABLE reportes (
 
 
 -- ------------------------------------------------------------
--- 7. LOG DE MODERACIÓN
--- HU-13 (bloquear / desbloquear — auditoría permanente)
+-- 7. LOG DE MODERACIÃ“N
+-- HU-13 (bloquear / desbloquear â€” auditorÃ­a permanente)
 -- ------------------------------------------------------------
 CREATE TABLE moderacion_log (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
@@ -237,7 +244,7 @@ CREATE TABLE moderacion_log (
     INDEX idx_modlog_anuncio (anuncio_id),
     INDEX idx_modlog_admin   (admin_id),
 
-    -- Auditoría permanente: sin DELETE ni CASCADE
+    -- AuditorÃ­a permanente: sin DELETE ni CASCADE
     CONSTRAINT fk_modlog_anuncio
         FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -275,12 +282,14 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- ============================================================
 --  RESUMEN DE TABLAS
 -- ============================================================
--- usuarios            → HU-01, HU-02, HU-04
--- tiendas             → HU-02, HU-11
--- tokens_verificacion → HU-03
--- anuncios            → HU-05, HU-07, HU-08, HU-09, HU-10, HU-11
--- imagenes_anuncio    → HU-06, HU-11
--- reportes            → HU-13
--- moderacion_log      → HU-13
--- contactos_log       → HU-12
+-- usuarios            â†’ HU-01, HU-02, HU-04
+-- tiendas             â†’ HU-02, HU-11
+-- tokens_verificacion â†’ HU-03
+-- anuncios            â†’ HU-05, HU-07, HU-08, HU-09, HU-10, HU-11
+-- imagenes_anuncio    â†’ HU-06, HU-11
+-- reportes            â†’ HU-13
+-- moderacion_log      â†’ HU-13
+-- contactos_log       â†’ HU-12
 -- ============================================================
+
+

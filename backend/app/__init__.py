@@ -1,8 +1,8 @@
-import os
+﻿import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
@@ -43,8 +43,41 @@ def create_app(test_config=None):
     cors.init_app(app)
     migrate.init_app(app, db)
 
+    _registrar_manejadores_jwt(jwt)
+
+    from app.routes.anuncios import anuncios_bp
     from app.routes.auth import auth_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
+    app.register_blueprint(anuncios_bp, url_prefix="/api/v1/anuncios")
 
     return app
+
+
+def _registrar_manejadores_jwt(jwt_manager):
+    @jwt_manager.unauthorized_loader
+    def jwt_faltante(reason):
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "UNAUTHORIZED",
+            "message": "Token JWT requerido.",
+        }), 401
+
+    @jwt_manager.invalid_token_loader
+    def jwt_invalido(reason):
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "UNAUTHORIZED",
+            "message": "Token JWT invalido.",
+        }), 401
+
+    @jwt_manager.expired_token_loader
+    def jwt_expirado(jwt_header, jwt_payload):
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "UNAUTHORIZED",
+            "message": "Token JWT expirado.",
+        }), 401
