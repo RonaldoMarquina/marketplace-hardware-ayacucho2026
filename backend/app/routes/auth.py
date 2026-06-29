@@ -1,6 +1,7 @@
 ﻿from flask import Blueprint
 
 from app.controllers.auth_controller import (
+    login_controller,
     reenviar_verificacion_controller,
     registrar_tienda_controller,
     registrar_usuario_controller,
@@ -19,6 +20,12 @@ auth_bp.add_url_rule(
 auth_bp.add_url_rule(
     "/register/tienda",
     view_func=registrar_tienda_controller,
+    methods=["POST"],
+)
+
+auth_bp.add_url_rule(
+    "/login",
+    view_func=login_controller,
     methods=["POST"],
 )
 

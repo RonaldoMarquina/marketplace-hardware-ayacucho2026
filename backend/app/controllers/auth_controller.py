@@ -2,7 +2,7 @@
 from marshmallow import RAISE, Schema, ValidationError, fields
 
 from app.schemas.tienda_schema import RegistroTiendaSchema
-from app.schemas.usuario_schema import RegistroUsuarioSchema
+from app.schemas.usuario_schema import LoginUsuarioSchema, RegistroUsuarioSchema
 from app.services.auth_service import AuthService
 
 
@@ -85,6 +85,42 @@ def registrar_tienda_controller():
         "DATABASE_ERROR": 500,
     }
     return jsonify(respuesta), status_by_error.get(respuesta.get("error"), 500)
+
+
+def login_controller():
+    # El controller solo valida la forma del request y delega la autenticacion
+    # al service. Asi evitamos mezclar HTTP con reglas de negocio.
+    request_data = request.get_json(silent=True) or {}
+    schema = LoginUsuarioSchema()
+
+    try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), 400
+
+    try:
+        respuesta = AuthService.login(datos_validados, request.remote_addr)
+    except Exception:
+        current_app.logger.exception("Error inesperado en login")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    status_by_error = {
+        "INVALID_CREDENTIALS": 401,
+        "ACCOUNT_PENDING": 403,
+        "ACCOUNT_BLOCKED": 403,
+        "RATE_LIMIT": 429,
+    }
+    return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)
 
 
 def verificar_correo_controller():

@@ -5,6 +5,7 @@ import threading
 
 import bcrypt
 from flask import current_app
+from flask_jwt_extended import create_access_token
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -17,6 +18,12 @@ from app.utils.file_validation import FileValidationError, validate_store_docume
 
 
 class AuthService:
+    # Rate limit simple para MVP: guarda intentos fallidos por IP en memoria.
+    # En produccion con varios procesos convendria mover esto a Redis.
+    _login_attempts = {}
+    _max_login_attempts = 5
+    _login_block_minutes = 15
+
     @staticmethod
     def registrar_usuario(data):
         usuario_existente = Usuario.query.filter(
@@ -168,6 +175,62 @@ class AuthService:
             }
 
     @staticmethod
+    def login(data, ip_address=None):
+        # HU-04 exige que correo inexistente y password incorrecto respondan
+        # igual. Asi evitamos enumeracion de usuarios.
+        ip_key = ip_address or "unknown"
+        if AuthService._ip_bloqueada(ip_key):
+            return {
+                "success": False,
+                "data": {},
+                "error": "RATE_LIMIT",
+                "message": "Demasiados intentos fallidos. Intenta nuevamente en 15 minutos.",
+            }
+
+        usuario = AuthRepository.buscar_usuario_por_correo(data["correo"])
+        if not usuario or not AuthService._password_valido(usuario, data["password"]):
+            AuthService._registrar_intento_fallido(ip_key)
+            return AuthService._respuesta_credenciales_invalidas()
+
+        if usuario.estado == "PENDIENTE_VERIFICACION":
+            return {
+                "success": False,
+                "data": {},
+                "error": "ACCOUNT_PENDING",
+                "message": "La cuenta esta pendiente de verificacion.",
+            }
+
+        if usuario.estado == "BLOQUEADO":
+            return {
+                "success": False,
+                "data": {},
+                "error": "ACCOUNT_BLOCKED",
+                "message": "La cuenta se encuentra bloqueada.",
+            }
+
+        AuthService._limpiar_intentos_login(ip_key)
+        access_token = create_access_token(
+            identity=str(usuario.id),
+            additional_claims={
+                "correo": usuario.correo,
+                "rol": usuario.rol,
+            },
+            expires_delta=timedelta(hours=8),
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "token": access_token,
+                "rol": usuario.rol,
+                "nombre": usuario.nombre,
+                "expira_en": "8h",
+            },
+            "error": None,
+            "message": "Login exitoso.",
+        }
+
+    @staticmethod
     def verificar_correo(token):
         token_verificacion = AuthRepository.buscar_token_verificacion(token)
         if not token_verificacion:
@@ -264,6 +327,52 @@ class AuthService:
             }
 
     @staticmethod
+    def _password_valido(usuario, password):
+        return bcrypt.checkpw(
+            password.encode("utf-8"),
+            usuario.password_hash.encode("utf-8"),
+        )
+
+    @staticmethod
+    def _respuesta_credenciales_invalidas():
+        return {
+            "success": False,
+            "data": {},
+            "error": "INVALID_CREDENTIALS",
+            "message": "Credenciales invalidas.",
+        }
+
+    @staticmethod
+    def _ip_bloqueada(ip_key):
+        intento = AuthService._login_attempts.get(ip_key)
+        if not intento:
+            return False
+
+        bloqueado_hasta = intento.get("blocked_until")
+        if bloqueado_hasta and bloqueado_hasta > AuthService._utcnow():
+            return True
+
+        if bloqueado_hasta:
+            AuthService._limpiar_intentos_login(ip_key)
+        return False
+
+    @staticmethod
+    def _registrar_intento_fallido(ip_key):
+        ahora = AuthService._utcnow()
+        intento = AuthService._login_attempts.setdefault(
+            ip_key,
+            {"count": 0, "blocked_until": None},
+        )
+        intento["count"] += 1
+
+        if intento["count"] >= AuthService._max_login_attempts:
+            intento["blocked_until"] = ahora + timedelta(minutes=AuthService._login_block_minutes)
+
+    @staticmethod
+    def _limpiar_intentos_login(ip_key):
+        AuthService._login_attempts.pop(ip_key, None)
+
+    @staticmethod
     def _utcnow():
         return datetime.now(UTC).replace(tzinfo=None)
 
@@ -341,5 +450,3 @@ class AuthService:
             Path(ruta_absoluta).unlink(missing_ok=True)
         except OSError:
             current_app.logger.exception("No se pudo eliminar archivo de rollback")
-
-
