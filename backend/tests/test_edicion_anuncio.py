@@ -21,14 +21,14 @@ WEBP_BYTES = b"RIFF\x10\x00\x00\x00WEBPVP8 "
 MP4_BYTES = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42"
 
 
-def crear_usuario(correo="editor@gmail.com"):
+def crear_usuario(correo="editor@gmail.com", rol="USER_ESTANDAR"):
     password_hash = bcrypt.hashpw(PASSWORD.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
     usuario = Usuario(
         nombre=f"Usuario {correo}",
         correo=correo,
         password_hash=password_hash,
         telefono=f"9{abs(hash(correo)) % 100000000:08d}",
-        rol="USER_ESTANDAR",
+        rol=rol,
         estado="ACTIVO",
     )
     db.session.add(usuario)
@@ -156,6 +156,41 @@ def test_editar_anuncio_categoria_sin_subcategoria_retorna_422(client, app):
     assert "subcategoria" in body["data"]
 
 
+def test_marcar_anuncio_vendido_exitoso(client, app):
+    with app.app_context():
+        usuario = crear_usuario()
+        anuncio = crear_anuncio(usuario)
+        token = token_para(usuario)
+        anuncio_id = anuncio.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/vendido",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["data"]["estado"] == "VENDIDO"
+    assert "vendido" in body["message"].lower()
+
+
+def test_marcar_anuncio_vendido_desde_inactivo_retorna_409(client, app):
+    with app.app_context():
+        usuario = crear_usuario()
+        anuncio = crear_anuncio(usuario, estado="INACTIVO")
+        token = token_para(usuario)
+        anuncio_id = anuncio.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/vendido",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CONFLICT"
+
+
 def test_desactivar_y_reactivar_anuncio_actualiza_estado_y_limite(client, app):
     with app.app_context():
         usuario = crear_usuario()
@@ -186,6 +221,68 @@ def test_desactivar_y_reactivar_anuncio_actualiza_estado_y_limite(client, app):
     )
     assert response_forbidden.status_code == 403
     assert response_forbidden.get_json()["error"] == "FORBIDDEN"
+
+
+def test_reactivar_anuncio_user_estandar_limite_25_activos_retorna_403(client, app):
+    with app.app_context():
+        usuario = crear_usuario()
+        anuncio_inactivo = crear_anuncio(usuario, estado="INACTIVO")
+        for i in range(25):
+            db.session.add(Anuncio(
+                usuario_id=usuario.id,
+                titulo=f"Activo {i}",
+                descripcion="Descripcion",
+                categoria="COMPONENTES",
+                subcategoria="PROCESADOR",
+                condicion="USADO",
+                precio="100.00",
+                estado="ACTIVO",
+                reactivaciones_count=0,
+            ))
+        db.session.commit()
+        token = token_para(usuario)
+        anuncio_id = anuncio_inactivo.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/reactivar",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 403
+    body = response.get_json()
+    assert body["error"] == "FORBIDDEN"
+    assert "25 anuncios activos" in body["message"]
+
+
+def test_reactivar_anuncio_tienda_verificada_sin_limite_25(client, app):
+    with app.app_context():
+        usuario = crear_usuario(correo="tienda@gmail.com", rol="TIENDA_VERIFICADA")
+        anuncio_inactivo = crear_anuncio(usuario, estado="INACTIVO")
+        for i in range(25):
+            db.session.add(Anuncio(
+                usuario_id=usuario.id,
+                titulo=f"Activo tienda {i}",
+                descripcion="Descripcion",
+                categoria="COMPONENTES",
+                subcategoria="PROCESADOR",
+                condicion="USADO",
+                precio="100.00",
+                estado="ACTIVO",
+                reactivaciones_count=0,
+            ))
+        db.session.commit()
+        token = token_para(usuario)
+        anuncio_id = anuncio_inactivo.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/reactivar",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["data"]["estado"] == "ACTIVO"
 
 
 def test_reordenar_media_actualiza_principal_y_orden(client, app):

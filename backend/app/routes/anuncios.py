@@ -1,10 +1,11 @@
-﻿from flask import Blueprint
+from flask import Blueprint
 from flask_jwt_extended import jwt_required
 
 from app.controllers.anuncio_controller import (
     desactivar_anuncio_controller,
     editar_anuncio_controller,
     eliminar_media_controller,
+    marcar_vendido_controller,
     publicar_anuncio_controller,
     reactivar_anuncio_controller,
     reordenar_media_controller,
@@ -30,6 +31,12 @@ anuncios_bp.add_url_rule(
 anuncios_bp.add_url_rule(
     "/<int:anuncio_id>",
     view_func=jwt_required()(editar_anuncio_controller),
+    methods=["PATCH"],
+)
+
+anuncios_bp.add_url_rule(
+    "/<int:anuncio_id>/vendido",
+    view_func=jwt_required()(marcar_vendido_controller),
     methods=["PATCH"],
 )
 

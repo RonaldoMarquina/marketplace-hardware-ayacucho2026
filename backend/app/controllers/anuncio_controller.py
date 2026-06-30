@@ -78,6 +78,22 @@ def editar_anuncio_controller(anuncio_id):
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
 
 
+def marcar_vendido_controller(anuncio_id):
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.marcar_anuncio_vendido(anuncio_id, usuario_id)
+    except Exception:
+        current_app.logger.exception("Error inesperado al marcar anuncio como vendido")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
+
+
 def desactivar_anuncio_controller(anuncio_id):
     try:
         usuario_id = int(get_jwt_identity())

@@ -21,6 +21,7 @@ EDITABLE_FIELDS = {
 }
 
 MAX_REACTIVACIONES = 3
+MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR = 25
 
 
 class AnuncioService:
@@ -42,10 +43,10 @@ class AnuncioService:
 
         if usuario.rol == "USER_ESTANDAR":
             activos = AnuncioRepository.contar_anuncios_activos(usuario.id)
-            if activos >= 25:
+            if activos >= MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR:
                 return _error_response(
                     "FORBIDDEN",
-                    "El usuario estandar alcanzo el limite de 25 anuncios activos.",
+                    f"El usuario estandar alcanzo el limite de {MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR} anuncios activos.",
                 )
 
         anuncio = Anuncio(
@@ -135,6 +136,45 @@ class AnuncioService:
             return _error_response("DATABASE_ERROR", "No se pudo actualizar el anuncio.")
 
     @staticmethod
+    def marcar_anuncio_vendido(anuncio_id, usuario_id):
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
+        if not anuncio:
+            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+
+        ownership_error = _validar_propietario(anuncio, usuario_id)
+        if ownership_error:
+            return ownership_error
+
+        status_error = _validar_estado_para_vendido(anuncio)
+        if status_error:
+            return status_error
+
+        estado_anterior = anuncio.estado
+        try:
+            anuncio.estado = "VENDIDO"
+            AnuncioRepository.commit()
+            current_app.logger.info(
+                "HU-08 cambio_estado usuario_id=%s anuncio_id=%s estado_anterior=%s estado_nuevo=%s",
+                usuario_id,
+                anuncio_id,
+                estado_anterior,
+                anuncio.estado,
+            )
+            return {
+                "success": True,
+                "data": {
+                    "id": anuncio.id,
+                    "estado": anuncio.estado,
+                    "updated_at": anuncio.updated_at.isoformat() if anuncio.updated_at else None,
+                },
+                "error": None,
+                "message": "Tu anuncio ha sido marcado como vendido exitosamente.",
+            }
+        except SQLAlchemyError:
+            AnuncioRepository.rollback()
+            return _error_response("DATABASE_ERROR", "No se pudo marcar el anuncio como vendido.")
+
+    @staticmethod
     def desactivar_anuncio(anuncio_id, usuario_id):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
@@ -148,13 +188,16 @@ class AnuncioService:
         if status_error:
             return status_error
 
+        estado_anterior = anuncio.estado
         try:
             anuncio.estado = "INACTIVO"
             AnuncioRepository.commit()
             current_app.logger.info(
-                "HU-07 desactivar anuncio usuario_id=%s anuncio_id=%s",
+                "HU-08 cambio_estado usuario_id=%s anuncio_id=%s estado_anterior=%s estado_nuevo=%s",
                 usuario_id,
                 anuncio_id,
+                estado_anterior,
+                anuncio.estado,
             )
             return {
                 "success": True,
@@ -184,17 +227,29 @@ class AnuncioService:
         if status_error:
             return status_error
 
+        usuario = AnuncioRepository.buscar_usuario_por_id(usuario_id)
+        if usuario and usuario.rol == "USER_ESTANDAR":
+            activos = AnuncioRepository.contar_anuncios_activos(usuario_id)
+            if activos >= MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR:
+                return _error_response(
+                    "FORBIDDEN",
+                    f"El usuario estandar alcanzo el limite de {MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR} anuncios activos.",
+                )
+
         if anuncio.reactivaciones_count >= MAX_REACTIVACIONES:
             return _error_response("FORBIDDEN", "El anuncio alcanzo el limite de 3 reactivaciones.")
 
+        estado_anterior = anuncio.estado
         try:
             anuncio.estado = "ACTIVO"
             anuncio.reactivaciones_count += 1
             AnuncioRepository.commit()
             current_app.logger.info(
-                "HU-07 reactivar anuncio usuario_id=%s anuncio_id=%s reactivaciones_count=%s",
+                "HU-08 cambio_estado usuario_id=%s anuncio_id=%s estado_anterior=%s estado_nuevo=%s reactivaciones_count=%s",
                 usuario_id,
                 anuncio_id,
+                estado_anterior,
+                anuncio.estado,
                 anuncio.reactivaciones_count,
             )
             return {
@@ -241,8 +296,8 @@ class AnuncioService:
 
         imagenes_existentes = AnuncioRepository.contar_media(anuncio_id, "imagen")
         videos_existentes = AnuncioRepository.contar_media(anuncio_id, "video")
-        if imagenes_existentes + imagenes_request > 8:
-            return _error_response("CONFLICT", "El anuncio ya alcanzo el limite de 8 imagenes.")
+        if imagenes_existentes + imagenes_request > 5:
+            return _error_response("CONFLICT", "El anuncio ya alcanzo el limite de 5 imagenes.")
         if videos_existentes + videos_request > 1:
             return _error_response("CONFLICT", "El anuncio ya tiene un video registrado.")
 
@@ -484,6 +539,16 @@ def _validar_estado_edicion(anuncio):
         return _error_response("CONFLICT", "El anuncio vendido no puede modificarse.")
     if anuncio.estado == "INACTIVO":
         return _error_response("CONFLICT", "El anuncio inactivo no puede modificarse.")
+    return None
+
+
+def _validar_estado_para_vendido(anuncio):
+    if anuncio.estado == "BLOQUEADO":
+        return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
+    if anuncio.estado == "VENDIDO":
+        return _error_response("CONFLICT", "El anuncio ya se encuentra vendido.")
+    if anuncio.estado == "INACTIVO":
+        return _error_response("CONFLICT", "El anuncio inactivo no puede marcarse como vendido.")
     return None
 
 
