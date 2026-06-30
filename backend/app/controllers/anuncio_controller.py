@@ -146,6 +146,23 @@ def detalle_anuncio_controller(anuncio_id):
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
 
 
+def contacto_anuncio_controller(anuncio_id):
+    try:
+        anuncio_id_int = _parse_positive_int(anuncio_id, "anuncio_id")
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.obtener_contacto_whatsapp(anuncio_id_int, usuario_id)
+    except Exception:
+        current_app.logger.exception("Error inesperado al obtener contacto de anuncio")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
+
+
 def editar_anuncio_controller(anuncio_id):
     request_data = request.get_json(silent=True)
     filtered_data = _solo_campos_editables(request_data)
@@ -345,9 +362,12 @@ def _status_for_anuncio_response(respuesta, success_status):
         "NOT_FOUND": 404,
         "CONFLICT": 409,
         "FILE_TOO_LARGE": 413,
+        "SELLER_WITHOUT_PHONE": 422,
         "INVALID_FILE_TYPE": 422,
         "TOO_MANY_FILES": 422,
         "VALIDATION_ERROR": 422,
+        "RATE_LIMIT_DIARIO": 429,
+        "RATE_LIMIT_ANUNCIO": 429,
         "FILE_DELETE_ERROR": 500,
         "DATABASE_ERROR": 500,
     }

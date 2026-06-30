@@ -1,5 +1,6 @@
-﻿from app import db
+from app import db
 from app.models.anuncio import Anuncio
+from app.models.contacto_log import ContactoLog
 from app.models.media_anuncio import MediaAnuncio
 from app.models.tienda import Tienda
 from app.models.usuario import Usuario
@@ -125,12 +126,31 @@ class AnuncioRepository:
         ).all()
 
     @staticmethod
+    def contar_contactos_distintos_hoy(comprador_id, day_start, day_end):
+        return db.session.query(db.func.count(db.distinct(ContactoLog.vendedor_id))).filter(
+            ContactoLog.comprador_id == comprador_id,
+            ContactoLog.created_at >= day_start,
+            ContactoLog.created_at < day_end,
+        ).scalar()
+
+    @staticmethod
+    def buscar_ultimo_contacto_anuncio(comprador_id, anuncio_id):
+        return ContactoLog.query.filter(
+            ContactoLog.comprador_id == comprador_id,
+            ContactoLog.anuncio_id == anuncio_id,
+        ).order_by(ContactoLog.created_at.desc(), ContactoLog.id.desc()).first()
+
+    @staticmethod
     def agregar(anuncio):
         db.session.add(anuncio)
 
     @staticmethod
     def agregar_media(media):
         db.session.add(media)
+
+    @staticmethod
+    def agregar_contacto_log(contacto_log):
+        db.session.add(contacto_log)
 
     @staticmethod
     def eliminar_media(media):

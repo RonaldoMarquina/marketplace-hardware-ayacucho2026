@@ -269,15 +269,20 @@ CREATE TABLE moderacion_log (
 CREATE TABLE contactos_log (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     comprador_id    INT UNSIGNED    NOT NULL,
+    vendedor_id     INT UNSIGNED    NOT NULL,
     anuncio_id      INT UNSIGNED    NOT NULL,
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
     INDEX idx_contactos_comprador (comprador_id),
+    INDEX idx_contactos_vendedor  (vendedor_id),
     INDEX idx_contactos_anuncio   (anuncio_id),
 
     CONSTRAINT fk_contactos_comprador
         FOREIGN KEY (comprador_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_contactos_vendedor
+        FOREIGN KEY (vendedor_id) REFERENCES usuarios (id)
         ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_contactos_anuncio
         FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)

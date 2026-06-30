@@ -1,12 +1,17 @@
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 from math import ceil
 from pathlib import Path
+import threading
+from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app
 from sqlalchemy import String, cast, func, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.anuncio import SUBCATEGORIAS_POR_CATEGORIA, Anuncio
+from app.models.contacto_log import ContactoLog
 from app.models.media_anuncio import MediaAnuncio
 from app.repositories.anuncio_repository import AnuncioRepository
 from app.utils.media_validation import MediaValidationError, classify_media, validate_and_store_media
@@ -26,6 +31,12 @@ MAX_REACTIVACIONES = 3
 MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR = 25
 MAX_IMAGENES_POR_ANUNCIO = 8
 MAX_VIDEOS_POR_ANUNCIO = 1
+MAX_CONTACTOS_DIARIOS = 20
+CONTACTO_RETRY_MINUTES = 60
+try:
+    PERU_TIMEZONE = ZoneInfo("America/Lima")
+except ZoneInfoNotFoundError:
+    PERU_TIMEZONE = None
 ORDER_BY_BUSQUEDA = {
     "reciente": (Anuncio.created_at.desc(), Anuncio.id.desc()),
     "precio_asc": (Anuncio.precio.asc(), Anuncio.id.desc()),
@@ -157,6 +168,78 @@ class AnuncioService:
             ),
             "error": None,
             "message": "Detalle de anuncio obtenido correctamente.",
+        }
+
+    @staticmethod
+    def obtener_contacto_whatsapp(anuncio_id, comprador_id):
+        comprador = AnuncioRepository.buscar_usuario_por_id(comprador_id)
+        if not comprador:
+            return _error_response("NOT_FOUND", "Usuario no encontrado.")
+
+        permiso_error = _validar_estado_comprador_contacto(comprador)
+        if permiso_error:
+            return permiso_error
+
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
+        if not anuncio or anuncio.estado != "ACTIVO":
+            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+
+        if comprador.id == anuncio.usuario_id:
+            return _error_response("CONFLICT", "No puedes contactarte a ti mismo por este anuncio.")
+
+        vendedor = AnuncioRepository.buscar_usuario_por_id(anuncio.usuario_id)
+        if not vendedor or not vendedor.telefono:
+            return _error_response("SELLER_WITHOUT_PHONE", "El vendedor no tiene telefono registrado.")
+
+        ahora_local = _now_local_naive()
+        day_start = ahora_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        contactos_hoy = AnuncioRepository.contar_contactos_distintos_hoy(comprador.id, day_start, day_end)
+        if contactos_hoy >= MAX_CONTACTOS_DIARIOS:
+            return {
+                "success": False,
+                "data": {
+                    "disponible_en": day_end.isoformat(),
+                },
+                "error": "RATE_LIMIT_DIARIO",
+                "message": f"Alcanzaste el limite de {MAX_CONTACTOS_DIARIOS} contactos por dia.",
+            }
+
+        ultimo_contacto = AnuncioRepository.buscar_ultimo_contacto_anuncio(comprador.id, anuncio.id)
+        if ultimo_contacto and ultimo_contacto.created_at > ahora_local - timedelta(minutes=CONTACTO_RETRY_MINUTES):
+            disponible_en = ultimo_contacto.created_at + timedelta(minutes=CONTACTO_RETRY_MINUTES)
+            return {
+                "success": False,
+                "data": {
+                    "disponible_en": disponible_en.isoformat(),
+                },
+                "error": "RATE_LIMIT_ANUNCIO",
+                "message": "Ya contactaste este anuncio recientemente. Intenta en 1 hora.",
+            }
+
+        titulo_sanitizado = _sanitize_contact_title(anuncio.titulo)
+        mensaje = (
+            f'Hola, vi tu anuncio "{titulo_sanitizado}" en HardwareAyacucho y me interesa. '
+            "¿Sigue disponible?"
+        )
+        mensaje_codificado = quote(mensaje, safe="")
+        whatsapp_url = f"https://wa.me/51{vendedor.telefono}?text={mensaje_codificado}"
+
+        AnuncioService._registrar_contacto_async(
+            comprador_id=comprador.id,
+            vendedor_id=vendedor.id,
+            anuncio_id=anuncio.id,
+            created_at=ahora_local,
+        )
+        return {
+            "success": True,
+            "data": {
+                "whatsapp_url": whatsapp_url,
+                "vendedor_nombre": vendedor.nombre,
+                "anuncio_titulo": anuncio.titulo,
+            },
+            "error": None,
+            "message": "Contacto generado correctamente.",
         }
 
     @staticmethod
@@ -659,6 +742,45 @@ class AnuncioService:
             "message": "Media reemplazada correctamente.",
         }
 
+    @staticmethod
+    def _registrar_contacto_async(comprador_id, vendedor_id, anuncio_id, created_at):
+        if current_app.config.get("TESTING"):
+            AnuncioService._registrar_contacto(comprador_id, vendedor_id, anuncio_id, created_at)
+            return
+
+        app = current_app._get_current_object()
+        thread = threading.Thread(
+            target=AnuncioService._registrar_contacto_thread,
+            args=(app, comprador_id, vendedor_id, anuncio_id, created_at),
+            daemon=True,
+        )
+        thread.start()
+
+    @staticmethod
+    def _registrar_contacto_thread(app, comprador_id, vendedor_id, anuncio_id, created_at):
+        with app.app_context():
+            AnuncioService._registrar_contacto(comprador_id, vendedor_id, anuncio_id, created_at)
+
+    @staticmethod
+    def _registrar_contacto(comprador_id, vendedor_id, anuncio_id, created_at):
+        try:
+            contacto_log = ContactoLog(
+                comprador_id=comprador_id,
+                vendedor_id=vendedor_id,
+                anuncio_id=anuncio_id,
+                created_at=created_at,
+            )
+            AnuncioRepository.agregar_contacto_log(contacto_log)
+            AnuncioRepository.commit()
+        except SQLAlchemyError:
+            AnuncioRepository.rollback()
+            current_app.logger.exception(
+                "No se pudo registrar contacto comprador_id=%s vendedor_id=%s anuncio_id=%s",
+                comprador_id,
+                vendedor_id,
+                anuncio_id,
+            )
+
 
 def _error_response(error_code, message, data=None):
     return {
@@ -722,6 +844,23 @@ def _validar_estado_operacion_media(anuncio):
         return _error_response("CONFLICT", "El anuncio vendido no permite cambios de media.")
     if anuncio.estado == "INACTIVO":
         return _error_response("CONFLICT", "El anuncio inactivo no permite cambios de media.")
+    return None
+
+
+def _validar_estado_comprador_contacto(usuario):
+    if usuario.estado == "PENDIENTE_VERIFICACION":
+        return _error_response("FORBIDDEN", "La cuenta debe estar activa para contactar anuncios.")
+
+    if usuario.estado == "BLOQUEADO":
+        return _error_response("FORBIDDEN", "La cuenta se encuentra bloqueada.")
+
+    if usuario.rol == "TIENDA_VERIFICADA":
+        tienda = getattr(usuario, "tienda", None)
+        if tienda and tienda.estado == "EN_REVISION":
+            return _error_response("FORBIDDEN", "La cuenta debe estar activa para contactar anuncios.")
+        if tienda and tienda.estado == "RECHAZADO":
+            return _error_response("FORBIDDEN", "La cuenta debe estar activa para contactar anuncios.")
+
     return None
 
 
@@ -832,6 +971,23 @@ def _json_spec_expression(spec_key):
 
 def _escape_like(value):
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _sanitize_contact_title(value):
+    sanitized = []
+    for char in value:
+        if char in {'"', "'"}:
+            continue
+        if ord(char) < 32 or ord(char) == 127:
+            continue
+        sanitized.append(char)
+    return "".join(sanitized).strip()
+
+
+def _now_local_naive():
+    if PERU_TIMEZONE is None:
+        return (datetime.now(UTC) - timedelta(hours=5)).replace(tzinfo=None)
+    return datetime.now(PERU_TIMEZONE).replace(tzinfo=None)
 
 
 def _eliminar_archivos(paths):
