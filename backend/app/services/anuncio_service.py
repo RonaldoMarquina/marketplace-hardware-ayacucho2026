@@ -127,6 +127,39 @@ class AnuncioService:
         }
 
     @staticmethod
+    def obtener_detalle_anuncio(anuncio_id, viewer_user_id=None):
+        detalle = AnuncioRepository.buscar_detalle_anuncio(anuncio_id)
+        if not detalle:
+            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+
+        anuncio, vendedor, tienda = detalle
+        es_propietario = viewer_user_id == anuncio.usuario_id if viewer_user_id is not None else False
+
+        if anuncio.estado != "ACTIVO":
+            if not es_propietario or anuncio.estado in {"VENDIDO", "BLOQUEADO"}:
+                return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+
+        media = AnuncioRepository.listar_media_detalle(anuncio_id)
+        current_app.logger.info(
+            "HU-11 detalle anuncio_id=%s viewer=%s",
+            anuncio_id,
+            "autenticado" if viewer_user_id is not None else "visitante",
+        )
+        return {
+            "success": True,
+            "data": _serialize_detail_listing(
+                anuncio=anuncio,
+                vendedor=vendedor,
+                tienda=tienda,
+                media=media,
+                viewer_user_id=viewer_user_id,
+                es_propietario=es_propietario,
+            ),
+            "error": None,
+            "message": "Detalle de anuncio obtenido correctamente.",
+        }
+
+    @staticmethod
     def publicar_anuncio(usuario_id, data):
         # El usuario_id viene del JWT, nunca del body. Esta regla evita que un
         # cliente publique anuncios a nombre de otra cuenta.
@@ -714,6 +747,48 @@ def _serialize_public_listing(item):
         "created_at": item.created_at.isoformat() if item.created_at else None,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
     }
+
+
+def _serialize_detail_listing(anuncio, vendedor, tienda, media, viewer_user_id, es_propietario):
+    precio = anuncio.precio
+    if hasattr(precio, "as_tuple"):
+        precio = float(precio)
+
+    vendedor_data = {
+        "id": vendedor.id,
+        "nombre": vendedor.nombre,
+        "es_tienda_verificada": vendedor.rol == "TIENDA_VERIFICADA",
+        "telefono": vendedor.telefono if viewer_user_id is not None else None,
+    }
+    if vendedor.rol == "TIENDA_VERIFICADA" and tienda is not None:
+        vendedor_data["tienda"] = {
+            "nombre_comercial": tienda.nombre_comercial,
+            "direccion": tienda.direccion,
+        }
+
+    response = {
+        "id": anuncio.id,
+        "titulo": anuncio.titulo,
+        "descripcion": anuncio.descripcion,
+        "categoria": anuncio.categoria,
+        "subcategoria": anuncio.subcategoria,
+        "condicion": anuncio.condicion,
+        "precio": precio,
+        "especificaciones": anuncio.especificaciones or {},
+        "media": [item.to_public_dict() for item in media],
+        "created_at": anuncio.created_at.isoformat() if anuncio.created_at else None,
+        "updated_at": anuncio.updated_at.isoformat() if anuncio.updated_at else None,
+        "es_propietario": es_propietario,
+        "vendedor": vendedor_data,
+    }
+
+    if es_propietario:
+        response["estado_propietario"] = {
+            "estado": anuncio.estado,
+            "reactivaciones_restantes": max(0, MAX_REACTIVACIONES - anuncio.reactivaciones_count),
+        }
+
+    return response
 
 
 def _build_applied_filters(filters):

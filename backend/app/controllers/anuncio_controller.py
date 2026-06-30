@@ -1,5 +1,5 @@
 from flask import current_app, jsonify, request
-from flask_jwt_extended import get_jwt_identity
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from marshmallow import RAISE, ValidationError
 
 from app.schemas.anuncio_schema import BuscarAnunciosSchema, CrearAnuncioSchema, EditarAnuncioSchema, ReordenarMediaSchema
@@ -116,6 +116,34 @@ def buscar_anuncios_controller():
         }), 500
 
     return jsonify(respuesta), 200
+
+
+def detalle_anuncio_controller(anuncio_id):
+    try:
+        anuncio_id_int = _parse_positive_int(anuncio_id, "anuncio_id")
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+
+    try:
+        verify_jwt_in_request(optional=True)
+        jwt_identity = get_jwt_identity()
+        viewer_user_id = int(jwt_identity) if jwt_identity is not None else None
+        respuesta = AnuncioService.obtener_detalle_anuncio(anuncio_id_int, viewer_user_id)
+    except Exception:
+        current_app.logger.exception("Error inesperado al obtener detalle de anuncio")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
 
 
 def editar_anuncio_controller(anuncio_id):

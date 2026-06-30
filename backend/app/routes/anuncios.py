@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required
 from app.controllers.anuncio_controller import (
     buscar_anuncios_controller,
     desactivar_anuncio_controller,
+    detalle_anuncio_controller,
     editar_anuncio_controller,
     eliminar_media_controller,
     feed_anuncios_controller,
@@ -27,6 +28,12 @@ anuncios_bp.add_url_rule(
 anuncios_bp.add_url_rule(
     "/buscar",
     view_func=buscar_anuncios_controller,
+    methods=["GET"],
+)
+
+anuncios_bp.add_url_rule(
+    "/<anuncio_id>",
+    view_func=detalle_anuncio_controller,
     methods=["GET"],
 )
 

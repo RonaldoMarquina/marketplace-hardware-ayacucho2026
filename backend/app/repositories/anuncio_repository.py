@@ -1,6 +1,7 @@
 ﻿from app import db
 from app.models.anuncio import Anuncio
 from app.models.media_anuncio import MediaAnuncio
+from app.models.tienda import Tienda
 from app.models.usuario import Usuario
 
 
@@ -98,6 +99,30 @@ class AnuncioRepository:
     @staticmethod
     def listar_query_publica(query, offset, limit):
         return query.offset(offset).limit(limit).all()
+
+    @staticmethod
+    def buscar_detalle_anuncio(anuncio_id):
+        return db.session.query(
+            Anuncio,
+            Usuario,
+            Tienda,
+        ).join(
+            Usuario,
+            Usuario.id == Anuncio.usuario_id,
+        ).outerjoin(
+            Tienda,
+            Tienda.usuario_id == Usuario.id,
+        ).filter(
+            Anuncio.id == anuncio_id,
+        ).first()
+
+    @staticmethod
+    def listar_media_detalle(anuncio_id):
+        return MediaAnuncio.query.filter_by(anuncio_id=anuncio_id).order_by(
+            MediaAnuncio.tipo_media.asc(),
+            MediaAnuncio.orden.asc().nullslast(),
+            MediaAnuncio.id.asc(),
+        ).all()
 
     @staticmethod
     def agregar(anuncio):
