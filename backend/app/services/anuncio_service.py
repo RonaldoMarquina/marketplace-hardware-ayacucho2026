@@ -1,4 +1,5 @@
 from copy import deepcopy
+from math import ceil
 from pathlib import Path
 
 from flask import current_app
@@ -25,6 +26,45 @@ MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR = 25
 
 
 class AnuncioService:
+    @staticmethod
+    def obtener_feed_publico(page, limit):
+        offset = (page - 1) * limit
+        total = AnuncioRepository.contar_anuncios_publicos()
+        registros = AnuncioRepository.listar_feed_publico(offset, limit)
+
+        data = []
+        for item in registros:
+            precio = item.precio
+            if hasattr(precio, "as_tuple"):
+                precio = float(precio)
+
+            data.append({
+                "id": item.id,
+                "titulo": item.titulo,
+                "precio": precio,
+                "categoria": item.categoria,
+                "subcategoria": item.subcategoria,
+                "condicion": item.condicion,
+                "imagen_principal": item.imagen_principal,
+                "vendedor_nombre": item.vendedor_nombre,
+                "es_tienda_verificada": item.vendedor_rol == "TIENDA_VERIFICADA",
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+            })
+
+        total_paginas = ceil(total / limit) if total else 0
+        return {
+            "data": data,
+            "paginacion": {
+                "total": total,
+                "pagina_actual": page,
+                "total_paginas": total_paginas,
+                "limit": limit,
+                "tiene_siguiente": page < total_paginas,
+                "tiene_anterior": page > 1,
+            },
+        }
+
     @staticmethod
     def publicar_anuncio(usuario_id, data):
         # El usuario_id viene del JWT, nunca del body. Esta regla evita que un

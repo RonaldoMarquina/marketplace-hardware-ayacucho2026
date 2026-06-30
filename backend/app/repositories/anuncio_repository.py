@@ -52,6 +52,41 @@ class AnuncioRepository:
         return MediaAnuncio.query.filter_by(anuncio_id=anuncio_id, id=media_id).first()
 
     @staticmethod
+    def contar_anuncios_publicos():
+        return Anuncio.query.filter_by(estado="ACTIVO").count()
+
+    @staticmethod
+    def listar_feed_publico(offset, limit):
+        return db.session.query(
+            Anuncio.id,
+            Anuncio.titulo,
+            Anuncio.precio,
+            Anuncio.categoria,
+            Anuncio.subcategoria,
+            Anuncio.condicion,
+            Anuncio.created_at,
+            Anuncio.updated_at,
+            Usuario.nombre.label("vendedor_nombre"),
+            Usuario.rol.label("vendedor_rol"),
+            MediaAnuncio.ruta_relativa.label("imagen_principal"),
+        ).join(
+            Usuario,
+            Usuario.id == Anuncio.usuario_id,
+        ).outerjoin(
+            MediaAnuncio,
+            db.and_(
+                MediaAnuncio.anuncio_id == Anuncio.id,
+                MediaAnuncio.tipo_media == "imagen",
+                MediaAnuncio.es_principal.is_(True),
+            ),
+        ).filter(
+            Anuncio.estado == "ACTIVO",
+        ).order_by(
+            Anuncio.created_at.desc(),
+            Anuncio.id.desc(),
+        ).offset(offset).limit(limit).all()
+
+    @staticmethod
     def agregar(anuncio):
         db.session.add(anuncio)
 

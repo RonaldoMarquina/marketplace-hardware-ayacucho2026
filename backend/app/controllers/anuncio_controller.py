@@ -48,6 +48,40 @@ def publicar_anuncio_controller():
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=201)
 
 
+def feed_anuncios_controller():
+    try:
+        page = _parse_positive_int(request.args.get("page", "1"), "page")
+        limit = _parse_positive_int(request.args.get("limit", "20"), "limit")
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+
+    if limit > 50:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": "El parametro limit no puede superar 50.",
+        }), 400
+
+    try:
+        respuesta = AnuncioService.obtener_feed_publico(page, limit)
+    except Exception:
+        current_app.logger.exception("Error inesperado al obtener feed publico")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), 200
+
+
 def editar_anuncio_controller(anuncio_id):
     request_data = request.get_json(silent=True)
     filtered_data = _solo_campos_editables(request_data)
@@ -254,3 +288,15 @@ def _status_for_anuncio_response(respuesta, success_status):
         "DATABASE_ERROR": 500,
     }
     return status_by_error.get(respuesta.get("error"), 500)
+
+
+def _parse_positive_int(raw_value, param_name):
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"El parametro {param_name} debe ser un entero positivo.") from exc
+
+    if value <= 0:
+        raise ValueError(f"El parametro {param_name} debe ser un entero positivo.")
+
+    return value

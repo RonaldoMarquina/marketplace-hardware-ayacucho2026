@@ -5,6 +5,7 @@ from app.controllers.anuncio_controller import (
     desactivar_anuncio_controller,
     editar_anuncio_controller,
     eliminar_media_controller,
+    feed_anuncios_controller,
     marcar_vendido_controller,
     publicar_anuncio_controller,
     reactivar_anuncio_controller,
@@ -15,6 +16,12 @@ from app.controllers.anuncio_controller import (
 
 
 anuncios_bp = Blueprint("anuncios", __name__)
+
+anuncios_bp.add_url_rule(
+    "",
+    view_func=feed_anuncios_controller,
+    methods=["GET"],
+)
 
 anuncios_bp.add_url_rule(
     "",
