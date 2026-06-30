@@ -57,6 +57,13 @@ class AnuncioRepository:
 
     @staticmethod
     def listar_feed_publico(offset, limit):
+        return AnuncioRepository.construir_query_publica_base().order_by(
+            Anuncio.created_at.desc(),
+            Anuncio.id.desc(),
+        ).offset(offset).limit(limit).all()
+
+    @staticmethod
+    def construir_query_publica_base():
         return db.session.query(
             Anuncio.id,
             Anuncio.titulo,
@@ -81,10 +88,16 @@ class AnuncioRepository:
             ),
         ).filter(
             Anuncio.estado == "ACTIVO",
-        ).order_by(
-            Anuncio.created_at.desc(),
-            Anuncio.id.desc(),
-        ).offset(offset).limit(limit).all()
+        )
+
+    @staticmethod
+    def contar_query_publica(query):
+        subquery = query.order_by(None).subquery()
+        return db.session.query(db.func.count()).select_from(subquery).scalar()
+
+    @staticmethod
+    def listar_query_publica(query, offset, limit):
+        return query.offset(offset).limit(limit).all()
 
     @staticmethod
     def agregar(anuncio):

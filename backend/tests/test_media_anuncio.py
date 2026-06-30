@@ -193,11 +193,11 @@ def test_subir_gif_retorna_422(client, app):
     assert response.get_json()["error"] == "INVALID_FILE_TYPE"
 
 
-def test_subir_mas_de_5_imagenes_total_retorna_409(client, app):
+def test_subir_mas_de_8_imagenes_total_retorna_409(client, app):
     with app.app_context():
         usuario = crear_usuario()
         anuncio = crear_anuncio(usuario)
-        for i in range(5):
+        for i in range(8):
             db.session.add(MediaAnuncio(
                 anuncio_id=anuncio.id,
                 tipo_media="imagen",

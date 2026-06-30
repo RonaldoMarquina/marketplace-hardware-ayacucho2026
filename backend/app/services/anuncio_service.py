@@ -3,6 +3,7 @@ from math import ceil
 from pathlib import Path
 
 from flask import current_app
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.anuncio import SUBCATEGORIAS_POR_CATEGORIA, Anuncio
@@ -23,6 +24,13 @@ EDITABLE_FIELDS = {
 
 MAX_REACTIVACIONES = 3
 MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR = 25
+MAX_IMAGENES_POR_ANUNCIO = 8
+MAX_VIDEOS_POR_ANUNCIO = 1
+ORDER_BY_BUSQUEDA = {
+    "reciente": (Anuncio.created_at.desc(), Anuncio.id.desc()),
+    "precio_asc": (Anuncio.precio.asc(), Anuncio.id.desc()),
+    "precio_desc": (Anuncio.precio.desc(), Anuncio.id.desc()),
+}
 
 
 class AnuncioService:
@@ -55,6 +63,59 @@ class AnuncioService:
         total_paginas = ceil(total / limit) if total else 0
         return {
             "data": data,
+            "paginacion": {
+                "total": total,
+                "pagina_actual": page,
+                "total_paginas": total_paginas,
+                "limit": limit,
+                "tiene_siguiente": page < total_paginas,
+                "tiene_anterior": page > 1,
+            },
+        }
+
+    @staticmethod
+    def buscar_anuncios_publicos(filters):
+        page = filters["page"]
+        limit = filters["limit"]
+        offset = (page - 1) * limit
+
+        query = AnuncioRepository.construir_query_publica_base()
+
+        if filters.get("categoria"):
+            query = query.filter(Anuncio.categoria == filters["categoria"])
+
+        if filters.get("subcategoria"):
+            query = query.filter(func.lower(Anuncio.subcategoria) == filters["subcategoria"].lower())
+
+        if filters.get("condicion"):
+            query = query.filter(Anuncio.condicion == filters["condicion"])
+
+        if filters.get("precio_min") is not None:
+            query = query.filter(Anuncio.precio >= filters["precio_min"])
+
+        if filters.get("precio_max") is not None:
+            query = query.filter(Anuncio.precio <= filters["precio_max"])
+
+        for spec_key, spec_value in filters.get("specs", {}).items():
+            query = query.filter(_build_spec_filter(spec_key, spec_value))
+
+        if filters.get("q"):
+            pattern = f"%{_escape_like(filters['q'].lower())}%"
+            query = query.filter(or_(
+                func.lower(Anuncio.titulo).like(pattern, escape="\\"),
+                func.lower(Anuncio.descripcion).like(pattern, escape="\\"),
+                func.lower(Anuncio.subcategoria).like(pattern, escape="\\"),
+            ))
+
+        query = query.order_by(*ORDER_BY_BUSQUEDA[filters["order_by"]])
+        total = AnuncioRepository.contar_query_publica(query)
+        registros = AnuncioRepository.listar_query_publica(query, offset, limit)
+
+        data = [_serialize_public_listing(item) for item in registros]
+        total_paginas = ceil(total / limit) if total else 0
+        return {
+            "data": data,
+            "filtros_aplicados": _build_applied_filters(filters),
             "paginacion": {
                 "total": total,
                 "pagina_actual": page,
@@ -329,16 +390,25 @@ class AnuncioService:
 
         imagenes_request = tipos.count("imagen")
         videos_request = tipos.count("video")
-        if imagenes_request > 8:
-            return _error_response("TOO_MANY_FILES", "No se permiten mas de 8 imagenes por peticion.")
-        if videos_request > 1:
-            return _error_response("TOO_MANY_FILES", "No se permite mas de 1 video por peticion.")
+        if imagenes_request > MAX_IMAGENES_POR_ANUNCIO:
+            return _error_response(
+                "TOO_MANY_FILES",
+                f"No se permiten mas de {MAX_IMAGENES_POR_ANUNCIO} imagenes por peticion.",
+            )
+        if videos_request > MAX_VIDEOS_POR_ANUNCIO:
+            return _error_response(
+                "TOO_MANY_FILES",
+                f"No se permite mas de {MAX_VIDEOS_POR_ANUNCIO} video por peticion.",
+            )
 
         imagenes_existentes = AnuncioRepository.contar_media(anuncio_id, "imagen")
         videos_existentes = AnuncioRepository.contar_media(anuncio_id, "video")
-        if imagenes_existentes + imagenes_request > 5:
-            return _error_response("CONFLICT", "El anuncio ya alcanzo el limite de 5 imagenes.")
-        if videos_existentes + videos_request > 1:
+        if imagenes_existentes + imagenes_request > MAX_IMAGENES_POR_ANUNCIO:
+            return _error_response(
+                "CONFLICT",
+                f"El anuncio ya alcanzo el limite de {MAX_IMAGENES_POR_ANUNCIO} imagenes.",
+            )
+        if videos_existentes + videos_request > MAX_VIDEOS_POR_ANUNCIO:
             return _error_response("CONFLICT", "El anuncio ya tiene un video registrado.")
 
         media_creada = []
@@ -624,6 +694,69 @@ def _validar_estado_operacion_media(anuncio):
 
 def _media_error_response(error):
     return _error_response(error.error_code, error.message)
+
+
+def _serialize_public_listing(item):
+    precio = item.precio
+    if hasattr(precio, "as_tuple"):
+        precio = float(precio)
+
+    return {
+        "id": item.id,
+        "titulo": item.titulo,
+        "precio": precio,
+        "categoria": item.categoria,
+        "subcategoria": item.subcategoria,
+        "condicion": item.condicion,
+        "imagen_principal": item.imagen_principal,
+        "vendedor_nombre": item.vendedor_nombre,
+        "es_tienda_verificada": item.vendedor_rol == "TIENDA_VERIFICADA",
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+    }
+
+
+def _build_applied_filters(filters):
+    applied = {"order_by": filters["order_by"]}
+    for key in ("categoria", "subcategoria", "condicion", "q"):
+        if filters.get(key):
+            applied[key] = filters[key]
+
+    if filters.get("precio_min") is not None:
+        applied["precio_min"] = str(filters["precio_min"])
+
+    if filters.get("precio_max") is not None:
+        applied["precio_max"] = str(filters["precio_max"])
+
+    if filters.get("specs"):
+        applied["specs"] = dict(filters["specs"])
+
+    return applied
+
+
+def _build_spec_filter(spec_key, spec_value):
+    expression = _json_spec_expression(spec_key)
+    if spec_value in ("true", "false"):
+        alternate = "1" if spec_value == "true" else "0"
+        return or_(
+            func.lower(cast(expression, String)) == spec_value,
+            cast(expression, String) == alternate,
+        )
+
+    return cast(expression, String) == spec_value
+
+
+def _json_spec_expression(spec_key):
+    path = f"$.{spec_key}"
+    dialect_name = Anuncio.query.session.get_bind().dialect.name
+    extracted = func.json_extract(Anuncio.especificaciones, path)
+    if dialect_name == "sqlite":
+        return extracted
+    return func.json_unquote(extracted)
+
+
+def _escape_like(value):
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _eliminar_archivos(paths):

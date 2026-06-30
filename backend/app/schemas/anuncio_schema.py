@@ -154,5 +154,88 @@ class ReordenarMediaSchema(Schema):
     )
 
 
+class BuscarAnunciosSchema(Schema):
+    """Valida los query params publicos de HU-10."""
+
+    categoria = fields.String(validate=validate.OneOf(CATEGORIAS_ANUNCIO))
+    subcategoria = fields.String(
+        validate=[
+            validate.Length(min=1, max=50),
+            validate.Regexp(
+                r"^[A-Za-z0-9 ]+$",
+                error="La subcategoria solo permite caracteres alfanumericos y espacios.",
+            ),
+        ]
+    )
+    condicion = fields.String(validate=validate.OneOf(CONDICIONES_ANUNCIO))
+    precio_min = fields.Decimal(as_string=False)
+    precio_max = fields.Decimal(as_string=False)
+    q = fields.String(validate=validate.Length(min=2, max=100))
+    order_by = fields.String(
+        load_default="reciente",
+        validate=validate.OneOf(("precio_asc", "precio_desc", "reciente")),
+    )
+    page = fields.Integer(load_default=1, validate=validate.Range(min=1))
+    limit = fields.Integer(load_default=20, validate=validate.Range(min=1, max=50))
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("Los parametros de busqueda son invalidos.")
+
+        datos = data.copy()
+        for campo in (
+            "categoria",
+            "subcategoria",
+            "condicion",
+            "precio_min",
+            "precio_max",
+            "q",
+            "order_by",
+            "page",
+            "limit",
+        ):
+            if isinstance(datos.get(campo), str):
+                datos[campo] = datos[campo].strip()
+
+        if isinstance(datos.get("categoria"), str):
+            datos["categoria"] = datos["categoria"].upper()
+
+        if isinstance(datos.get("condicion"), str):
+            datos["condicion"] = datos["condicion"].upper()
+
+        if isinstance(datos.get("order_by"), str):
+            datos["order_by"] = datos["order_by"].lower()
+
+        return datos
+
+    @validates("precio_min")
+    def validar_precio_min(self, value, **kwargs):
+        _validar_decimal_positivo(value, "precio_min")
+
+    @validates("precio_max")
+    def validar_precio_max(self, value, **kwargs):
+        _validar_decimal_positivo(value, "precio_max")
+
+    @validates_schema
+    def validar_rango_precios(self, data, **kwargs):
+        precio_min = data.get("precio_min")
+        precio_max = data.get("precio_max")
+        if precio_min is not None and precio_max is not None and precio_min > precio_max:
+            raise ValidationError(
+                {"precio_min": ["precio_min no puede ser mayor que precio_max."]}
+            )
+
+
 def _normalizar_taxonomia(value):
     return value.upper().replace(" ", "_").replace("-", "_")
+
+
+def _validar_decimal_positivo(value, field_name):
+    try:
+        precio = Decimal(value)
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValidationError(f"{field_name} debe ser numerico.") from exc
+
+    if precio <= 0:
+        raise ValidationError(f"{field_name} debe ser mayor que 0.")

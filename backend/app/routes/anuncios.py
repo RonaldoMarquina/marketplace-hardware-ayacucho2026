@@ -2,6 +2,7 @@ from flask import Blueprint
 from flask_jwt_extended import jwt_required
 
 from app.controllers.anuncio_controller import (
+    buscar_anuncios_controller,
     desactivar_anuncio_controller,
     editar_anuncio_controller,
     eliminar_media_controller,
@@ -20,6 +21,12 @@ anuncios_bp = Blueprint("anuncios", __name__)
 anuncios_bp.add_url_rule(
     "",
     view_func=feed_anuncios_controller,
+    methods=["GET"],
+)
+
+anuncios_bp.add_url_rule(
+    "/buscar",
+    view_func=buscar_anuncios_controller,
     methods=["GET"],
 )
 

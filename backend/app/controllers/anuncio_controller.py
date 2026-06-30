@@ -2,7 +2,7 @@ from flask import current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity
 from marshmallow import RAISE, ValidationError
 
-from app.schemas.anuncio_schema import CrearAnuncioSchema, EditarAnuncioSchema, ReordenarMediaSchema
+from app.schemas.anuncio_schema import BuscarAnunciosSchema, CrearAnuncioSchema, EditarAnuncioSchema, ReordenarMediaSchema
 from app.services.anuncio_service import AnuncioService
 
 
@@ -15,6 +15,8 @@ EDITABLE_FIELDS = {
     "precio",
     "especificaciones",
 }
+
+MAX_SPECS_BUSQUEDA = 10
 
 
 def publicar_anuncio_controller():
@@ -72,6 +74,40 @@ def feed_anuncios_controller():
         respuesta = AnuncioService.obtener_feed_publico(page, limit)
     except Exception:
         current_app.logger.exception("Error inesperado al obtener feed publico")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), 200
+
+
+def buscar_anuncios_controller():
+    request_data = _extraer_query_busqueda(request.args)
+    schema = BuscarAnunciosSchema()
+
+    try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Parametros de busqueda invalidos.",
+        }), _status_for_search_validation(error.messages)
+
+    specs_error = _validar_specs_query(request.args)
+    if specs_error:
+        return jsonify(specs_error), 422
+
+    datos_validados["specs"] = _extraer_specs_query(request.args)
+
+    try:
+        respuesta = AnuncioService.buscar_anuncios_publicos(datos_validados)
+    except Exception:
+        current_app.logger.exception("Error inesperado al buscar anuncios")
         return jsonify({
             "success": False,
             "data": {},
@@ -300,3 +336,53 @@ def _parse_positive_int(raw_value, param_name):
         raise ValueError(f"El parametro {param_name} debe ser un entero positivo.")
 
     return value
+
+
+def _extraer_query_busqueda(args):
+    data = {}
+    for key in args.keys():
+        if not key.startswith("specs["):
+            data[key] = args.get(key)
+    return data
+
+
+def _extraer_specs_query(args):
+    specs = {}
+    for key in args.keys():
+        if not key.startswith("specs[") or not key.endswith("]"):
+            continue
+
+        spec_key = key[6:-1]
+        specs[spec_key] = (args.get(key) or "").strip()
+    return specs
+
+
+def _validar_specs_query(args):
+    specs = _extraer_specs_query(args)
+    if len(specs) > MAX_SPECS_BUSQUEDA:
+        return {
+            "success": False,
+            "data": {"specs": ["No se permiten mas de 10 specs simultaneas."]},
+            "error": "VALIDATION_ERROR",
+            "message": "Parametros de busqueda invalidos.",
+        }
+
+    for spec_key in specs:
+        if not spec_key or len(spec_key) > 50 or not spec_key.replace("_", "").isalnum():
+            return {
+                "success": False,
+                "data": {"specs": [f"La clave de spec '{spec_key}' es invalida."]},
+                "error": "VALIDATION_ERROR",
+                "message": "Parametros de busqueda invalidos.",
+            }
+
+    return None
+
+
+def _status_for_search_validation(messages):
+    texto = str(messages).lower()
+    if "precio_min no puede ser mayor que precio_max" in texto:
+        return 400
+    if "q" in messages:
+        return 400
+    return 422
