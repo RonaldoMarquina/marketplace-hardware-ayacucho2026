@@ -6,7 +6,7 @@ class RegistroTiendaSchema(Schema):
 
     nombre_comercial = fields.String(
         required=True,
-        validate=validate.Length(min=1, max=150),
+        validate=validate.Length(min=1, max=100),
         error_messages={"required": "El nombre comercial es obligatorio."},
     )
     ruc = fields.String(
@@ -19,7 +19,7 @@ class RegistroTiendaSchema(Schema):
     )
     direccion = fields.String(
         required=True,
-        validate=validate.Length(min=1, max=255),
+        validate=validate.Length(min=1, max=200),
         error_messages={"required": "La direccion es obligatoria."},
     )
     telefono = fields.String(
@@ -41,8 +41,8 @@ class RegistroTiendaSchema(Schema):
     password = fields.String(
         required=True,
         validate=validate.Regexp(
-            r"^(?=.*[A-Z])(?=.*[!@#$%^&*(),.?\":{}|<>]).{8,}$",
-            error="La contrasena debe tener al menos 8 caracteres, una mayuscula y un caracter especial.",
+            r"^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?\":{}|<>]).{8,}$",
+            error="La contrasena debe tener al menos 8 caracteres, una mayuscula, un numero y un caracter especial.",
         ),
         load_only=True,
         error_messages={"required": "El password es obligatorio."},

@@ -6,7 +6,6 @@ import threading
 import bcrypt
 from flask import current_app
 from flask_jwt_extended import create_access_token
-from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app import db
@@ -14,33 +13,32 @@ from app.models.tienda import Tienda
 from app.models.token_verificacion import TokenVerificacion
 from app.models.usuario import Usuario
 from app.repositories.auth_repository import AuthRepository
-from app.utils.file_validation import FileValidationError, validate_store_document
+from app.utils.file_validation import (
+    FileValidationError,
+    persist_store_document,
+    validate_store_document,
+)
 
 
 class AuthService:
-    # Rate limit simple para MVP: guarda intentos fallidos por IP en memoria.
-    # En produccion con varios procesos convendria mover esto a Redis.
     _login_attempts = {}
     _max_login_attempts = 5
     _login_block_minutes = 15
+    _resend_limit = 3
+    _resend_window_minutes = 15
 
     @staticmethod
     def registrar_usuario(data):
-        usuario_existente = Usuario.query.filter(
-            or_(
-                Usuario.correo == data["correo"],
-                Usuario.telefono == data["telefono"],
-                Usuario.nombre == data["nombre"],
-            )
-        ).first()
+        usuario_existente = AuthRepository.buscar_usuario_por_correo_o_telefono(
+            data["correo"],
+            data["telefono"],
+        )
 
         if usuario_existente:
             if usuario_existente.correo == data["correo"]:
                 mensaje = "El correo ya se encuentra registrado."
-            elif usuario_existente.telefono == data["telefono"]:
-                mensaje = "El telefono ya se encuentra registrado."
             else:
-                mensaje = "El nombre ya se encuentra registrado."
+                mensaje = "El telefono ya se encuentra registrado."
 
             return {
                 "success": False,
@@ -74,7 +72,7 @@ class AuthService:
                 "success": True,
                 "data": usuario.to_public_dict(),
                 "error": None,
-                "message": "Usuario registrado correctamente.",
+                "message": "Revisa tu correo para activar tu cuenta.",
             }
         except IntegrityError:
             db.session.rollback()
@@ -82,7 +80,7 @@ class AuthService:
                 "success": False,
                 "data": {},
                 "error": "CONFLICT",
-                "message": "El correo, telefono o nombre ya se encuentra registrado.",
+                "message": "El correo o telefono ya se encuentra registrado.",
             }
         except SQLAlchemyError:
             db.session.rollback()
@@ -129,7 +127,7 @@ class AuthService:
             password_hash=password_hash,
             telefono=data["telefono"],
             rol="TIENDA_VERIFICADA",
-            estado="PENDIENTE_VERIFICACION",
+            estado="EN_REVISION",
         )
 
         tienda = Tienda(
@@ -148,12 +146,13 @@ class AuthService:
             token_verificacion = AuthService._crear_token_verificacion(usuario)
             AuthRepository.agregar_token_verificacion(token_verificacion)
             AuthRepository.commit()
+            persist_store_document(documento_identidad, ruta_absoluta)
             AuthService._enviar_correo_verificacion_async(usuario, token_verificacion.token)
             return {
                 "success": True,
                 "data": tienda.to_public_dict(),
                 "error": None,
-                "message": "Tienda registrada correctamente.",
+                "message": "Revisa tu correo para verificar tu cuenta. Tu solicitud de tienda sera revisada por un administrador.",
             }
         except IntegrityError:
             AuthRepository.rollback()
@@ -173,42 +172,61 @@ class AuthService:
                 "error": "DATABASE_ERROR",
                 "message": "No se pudo registrar la tienda.",
             }
+        except OSError:
+            current_app.logger.exception("No se pudo guardar documento de tienda")
+            return {
+                "success": True,
+                "data": tienda.to_public_dict(),
+                "error": None,
+                "message": "Revisa tu correo para verificar tu cuenta. Tu solicitud de tienda sera revisada por un administrador.",
+            }
 
     @staticmethod
     def login(data, ip_address=None):
-        # HU-04 exige que correo inexistente y password incorrecto respondan
-        # igual. Asi evitamos enumeracion de usuarios.
-        ip_key = ip_address or "unknown"
-        if AuthService._ip_bloqueada(ip_key):
-            return {
-                "success": False,
-                "data": {},
-                "error": "RATE_LIMIT",
-                "message": "Demasiados intentos fallidos. Intenta nuevamente en 15 minutos.",
-            }
-
         usuario = AuthRepository.buscar_usuario_por_correo(data["correo"])
-        if not usuario or not AuthService._password_valido(usuario, data["password"]):
-            AuthService._registrar_intento_fallido(ip_key)
+        if not usuario:
+            AuthService._registrar_evento_login(None, ip_address, exitoso=False)
             return AuthService._respuesta_credenciales_invalidas()
 
+        bloqueo_temp = AuthService._resolver_bloqueo_temporal(usuario)
+        if bloqueo_temp:
+            AuthService._registrar_evento_login(usuario.id, ip_address, exitoso=False)
+            return bloqueo_temp
+
+        if not AuthService._password_valido(usuario, data["password"]):
+            AuthService._registrar_evento_login(usuario.id, ip_address, exitoso=False)
+            return AuthService._registrar_fallo_login(usuario)
+
         if usuario.estado == "PENDIENTE_VERIFICACION":
+            AuthService._registrar_evento_login(usuario.id, ip_address, exitoso=False)
             return {
                 "success": False,
-                "data": {},
+                "data": {"puede_reenviar": True},
                 "error": "ACCOUNT_PENDING",
-                "message": "La cuenta esta pendiente de verificacion.",
+                "message": "Debes verificar tu correo antes de iniciar sesion.",
+            }
+
+        if usuario.estado == "EN_REVISION":
+            AuthService._registrar_evento_login(usuario.id, ip_address, exitoso=False)
+            return {
+                "success": False,
+                "data": {"puede_reenviar": False},
+                "error": "ACCOUNT_IN_REVIEW",
+                "message": "Tu solicitud de tienda esta siendo revisada por un administrador.",
             }
 
         if usuario.estado == "BLOQUEADO":
+            AuthService._registrar_evento_login(usuario.id, ip_address, exitoso=False)
             return {
                 "success": False,
-                "data": {},
+                "data": {"puede_reenviar": False},
                 "error": "ACCOUNT_BLOCKED",
-                "message": "La cuenta se encuentra bloqueada.",
+                "message": "Tu cuenta ha sido suspendida. Contacta al administrador.",
             }
 
-        AuthService._limpiar_intentos_login(ip_key)
+        usuario.intentos_fallidos = 0
+        usuario.bloqueado_hasta = None
+        AuthRepository.commit()
         access_token = create_access_token(
             identity=str(usuario.id),
             additional_claims={
@@ -217,13 +235,17 @@ class AuthService:
             },
             expires_delta=timedelta(hours=8),
         )
+        AuthService._registrar_evento_login(usuario.id, ip_address, exitoso=True)
 
         return {
             "success": True,
             "data": {
                 "token": access_token,
+                "correo": usuario.correo,
                 "rol": usuario.rol,
                 "nombre": usuario.nombre,
+                "es_tienda_verificada": usuario.rol == "TIENDA_VERIFICADA",
+                "estado": usuario.estado,
                 "expira_en": "8h",
             },
             "error": None,
@@ -258,14 +280,25 @@ class AuthService:
             }
 
         try:
-            token_verificacion.usuario.estado = "ACTIVO"
+            usuario = token_verificacion.usuario
+            if usuario.rol == "TIENDA_VERIFICADA":
+                usuario.estado = "EN_REVISION"
+                mensaje = (
+                    "Correo verificado. Tu solicitud de tienda esta siendo revisada por un administrador."
+                )
+            else:
+                usuario.estado = "ACTIVO"
+                mensaje = "Correo verificado. Tu cuenta esta activa, ya puedes iniciar sesion."
+
             token_verificacion.usado = True
             AuthRepository.commit()
             return {
                 "success": True,
-                "data": token_verificacion.usuario.to_public_dict(),
+                "data": {
+                    "estado": usuario.estado,
+                },
                 "error": None,
-                "message": "Correo verificado correctamente.",
+                "message": mensaje,
             }
         except SQLAlchemyError:
             AuthRepository.rollback()
@@ -295,12 +328,43 @@ class AuthService:
                 "message": "La cuenta ya se encuentra activa.",
             }
 
-        if usuario.estado != "PENDIENTE_VERIFICACION":
+        if usuario.estado not in {"PENDIENTE_VERIFICACION", "EN_REVISION"}:
             return {
                 "success": False,
                 "data": {},
                 "error": "CONFLICT",
                 "message": "La cuenta no permite reenvio de verificacion.",
+            }
+
+        ventana = AuthService._utcnow() - timedelta(minutes=AuthService._resend_window_minutes)
+        reenvios_recientes = AuthRepository.contar_tokens_recientes_usuario(
+            usuario.id,
+            ventana,
+        )
+        primer_token = AuthRepository.buscar_primer_token_usuario(usuario.id)
+        descuento_registro = 0
+        if primer_token and primer_token.created_at >= ventana:
+            descuento_registro = 1
+
+        reenvios_efectivos = max(reenvios_recientes - descuento_registro, 0)
+        if reenvios_efectivos >= AuthService._resend_limit:
+            disponible_en = ventana + timedelta(minutes=AuthService._resend_window_minutes)
+            tokens_recientes = sorted(
+                [
+                    token.created_at
+                    for token in usuario.tokens_verificacion
+                    if token.created_at >= ventana
+                ]
+            )
+            if tokens_recientes:
+                disponible_en = tokens_recientes[0] + timedelta(minutes=AuthService._resend_window_minutes)
+            return {
+                "success": False,
+                "data": {
+                    "disponible_en": disponible_en.isoformat(timespec="seconds"),
+                },
+                "error": "RATE_LIMIT_REENVIO",
+                "message": "Demasiados intentos. Espera 15 minutos antes de solicitar otro correo.",
             }
 
         try:
@@ -313,9 +377,11 @@ class AuthService:
             AuthService._enviar_correo_verificacion_async(usuario, token_verificacion.token)
             return {
                 "success": True,
-                "data": {"correo": usuario.correo},
+                "data": {
+                    "expira_en": token_verificacion.expira_en.isoformat(timespec="seconds"),
+                },
                 "error": None,
-                "message": "Correo de verificacion reenviado correctamente.",
+                "message": "Correo de verificacion reenviado. Revisa tu bandeja de entrada.",
             }
         except SQLAlchemyError:
             AuthRepository.rollback()
@@ -343,34 +409,56 @@ class AuthService:
         }
 
     @staticmethod
-    def _ip_bloqueada(ip_key):
-        intento = AuthService._login_attempts.get(ip_key)
-        if not intento:
-            return False
-
-        bloqueado_hasta = intento.get("blocked_until")
-        if bloqueado_hasta and bloqueado_hasta > AuthService._utcnow():
-            return True
-
-        if bloqueado_hasta:
-            AuthService._limpiar_intentos_login(ip_key)
-        return False
-
-    @staticmethod
-    def _registrar_intento_fallido(ip_key):
+    def _registrar_fallo_login(usuario):
         ahora = AuthService._utcnow()
-        intento = AuthService._login_attempts.setdefault(
-            ip_key,
-            {"count": 0, "blocked_until": None},
-        )
-        intento["count"] += 1
+        usuario.intentos_fallidos = (usuario.intentos_fallidos or 0) + 1
 
-        if intento["count"] >= AuthService._max_login_attempts:
-            intento["blocked_until"] = ahora + timedelta(minutes=AuthService._login_block_minutes)
+        if usuario.intentos_fallidos >= AuthService._max_login_attempts:
+            usuario.estado = "BLOQUEADO_TEMP"
+            usuario.bloqueado_hasta = ahora + timedelta(minutes=AuthService._login_block_minutes)
+            AuthRepository.commit()
+            return {
+                "success": False,
+                "data": {
+                    "disponible_en": usuario.bloqueado_hasta.isoformat(timespec="seconds"),
+                },
+                "error": "RATE_LIMIT_LOGIN",
+                "message": "Demasiados intentos fallidos. Cuenta bloqueada temporalmente.",
+            }
+
+        AuthRepository.commit()
+        return AuthService._respuesta_credenciales_invalidas()
 
     @staticmethod
-    def _limpiar_intentos_login(ip_key):
-        AuthService._login_attempts.pop(ip_key, None)
+    def _resolver_bloqueo_temporal(usuario):
+        if usuario.estado != "BLOQUEADO_TEMP":
+            return None
+
+        ahora = AuthService._utcnow()
+        if usuario.bloqueado_hasta and usuario.bloqueado_hasta > ahora:
+            return {
+                "success": False,
+                "data": {
+                    "disponible_en": usuario.bloqueado_hasta.isoformat(timespec="seconds"),
+                },
+                "error": "RATE_LIMIT_LOGIN",
+                "message": "Demasiados intentos fallidos. Cuenta bloqueada temporalmente.",
+            }
+
+        usuario.estado = "ACTIVO"
+        usuario.intentos_fallidos = 0
+        usuario.bloqueado_hasta = None
+        AuthRepository.commit()
+        return None
+
+    @staticmethod
+    def _registrar_evento_login(usuario_id, ip_address, exitoso):
+        current_app.logger.info(
+            "Login usuario_id=%s ip=%s exitoso=%s",
+            usuario_id,
+            ip_address or "unknown",
+            exitoso,
+        )
 
     @staticmethod
     def _utcnow():
@@ -384,6 +472,7 @@ class AuthService:
             tipo="EMAIL_VERIFICATION",
             expira_en=AuthService._utcnow() + timedelta(hours=24),
             usado=False,
+            created_at=AuthService._utcnow(),
         )
 
     @staticmethod
@@ -426,7 +515,7 @@ class AuthService:
                 "message": "El telefono ya se encuentra registrado.",
             }
 
-        if AuthRepository.buscar_usuario_por_nombre(data["nombre_comercial"]):
+        if AuthRepository.buscar_tienda_por_nombre_comercial(data["nombre_comercial"]):
             return {
                 "success": False,
                 "data": {},

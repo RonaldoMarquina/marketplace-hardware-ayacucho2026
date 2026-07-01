@@ -1,4 +1,6 @@
 ﻿from app import db
+from sqlalchemy import or_
+
 from app.models.tienda import Tienda
 from app.models.token_verificacion import TokenVerificacion
 from app.models.usuario import Usuario
@@ -18,8 +20,21 @@ class AuthRepository:
         return Usuario.query.filter_by(nombre=nombre).first()
 
     @staticmethod
+    def buscar_usuario_por_correo_o_telefono(correo, telefono):
+        return Usuario.query.filter(
+            or_(
+                Usuario.correo == correo,
+                Usuario.telefono == telefono,
+            )
+        ).first()
+
+    @staticmethod
     def buscar_tienda_por_ruc(ruc):
         return Tienda.query.filter_by(ruc=ruc).first()
+
+    @staticmethod
+    def buscar_tienda_por_nombre_comercial(nombre_comercial):
+        return Tienda.query.filter_by(nombre_comercial=nombre_comercial).first()
 
     @staticmethod
     def buscar_token_verificacion(token):
@@ -32,6 +47,21 @@ class AuthRepository:
             tipo=tipo,
             usado=False,
         ).all()
+
+    @staticmethod
+    def buscar_primer_token_usuario(usuario_id, tipo="EMAIL_VERIFICATION"):
+        return TokenVerificacion.query.filter_by(
+            usuario_id=usuario_id,
+            tipo=tipo,
+        ).order_by(TokenVerificacion.created_at.asc(), TokenVerificacion.id.asc()).first()
+
+    @staticmethod
+    def contar_tokens_recientes_usuario(usuario_id, desde, tipo="EMAIL_VERIFICATION"):
+        return TokenVerificacion.query.filter(
+            TokenVerificacion.usuario_id == usuario_id,
+            TokenVerificacion.tipo == tipo,
+            TokenVerificacion.created_at >= desde,
+        ).count()
 
     @staticmethod
     def agregar_usuario(usuario):

@@ -24,9 +24,11 @@ def test_registro_usuario_exitoso_retorna_201_y_guarda_hash(client, app):
     assert response.status_code == 201
     body = response.get_json()
     assert body["success"] is True
+    assert body["message"] == "Revisa tu correo para activar tu cuenta."
     assert body["data"]["nombre"] == "Pablo Perez"
     assert body["data"]["correo"] == "pablo@gmail.com"
     assert body["data"]["rol"] == "USER_ESTANDAR"
+    assert body["data"]["estado"] == "PENDIENTE_VERIFICACION"
     assert "password" not in str(body)
     assert "password_hash" not in str(body)
 
@@ -41,18 +43,34 @@ def test_registro_usuario_exitoso_retorna_201_y_guarda_hash(client, app):
         )
 
 
-def test_registro_usuario_con_datos_invalidos_retorna_400(client):
+def test_registro_usuario_campos_faltantes_retorna_400(client):
     response = client.post(
         REGISTER_URL,
-        json=datos_usuario(correo="correo-invalido", telefono="123"),
+        json={"correo": "pablo@gmail.com"},
     )
 
     assert response.status_code == 400
     body = response.get_json()
     assert body["success"] is False
     assert body["error"] == "VALIDATION_ERROR"
+    assert "nombre" in body["data"]
+    assert "password" in body["data"]
+    assert "telefono" in body["data"]
+
+
+def test_registro_usuario_con_datos_invalidos_retorna_422(client):
+    response = client.post(
+        REGISTER_URL,
+        json=datos_usuario(correo="correo-invalido", telefono="123", password="abcdefg#"),
+    )
+
+    assert response.status_code == 422
+    body = response.get_json()
+    assert body["success"] is False
+    assert body["error"] == "VALIDATION_ERROR"
     assert "correo" in body["data"]
     assert "telefono" in body["data"]
+    assert "password" in body["data"]
 
 
 def test_registro_usuario_correo_duplicado_retorna_409(client):
@@ -85,7 +103,7 @@ def test_registro_usuario_telefono_duplicado_retorna_409(client):
     assert "telefono" in body["message"].lower()
 
 
-def test_registro_usuario_nombre_duplicado_retorna_409(client):
+def test_registro_usuario_nombre_duplicado_no_retorna_conflicto(client, app):
     client.post(REGISTER_URL, json=datos_usuario())
 
     response = client.post(
@@ -93,11 +111,11 @@ def test_registro_usuario_nombre_duplicado_retorna_409(client):
         json=datos_usuario(correo="juan@gmail.com", telefono="987654321"),
     )
 
-    assert response.status_code == 409
-    body = response.get_json()
-    assert body["success"] is False
-    assert body["error"] == "CONFLICT"
-    assert "nombre" in body["message"].lower()
+    assert response.status_code == 201
+
+    with app.app_context():
+        usuarios = Usuario.query.filter_by(nombre="Pablo Perez").all()
+        assert len(usuarios) == 2
 
 
 def test_registro_usuario_no_deja_registros_duplicados(client, app):

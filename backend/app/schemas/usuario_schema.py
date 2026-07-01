@@ -24,8 +24,8 @@ class RegistroUsuarioSchema(Schema):
     password = fields.String(
         required=True,
         validate=validate.Regexp(
-            r"^(?=.*[A-Z])(?=.*[!@#$%^&*(),.?\":{}|<>]).{8,}$",
-            error="La contrasena debe tener al menos 8 caracteres, una mayuscula y un caracter especial.",
+            r"^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?\":{}|<>]).{8,}$",
+            error="La contrasena debe tener al menos 8 caracteres, una mayuscula, un numero y un caracter especial.",
         ),
         load_only=True,
         error_messages={"required": "El password es obligatorio."},

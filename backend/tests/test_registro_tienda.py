@@ -1,4 +1,5 @@
 from io import BytesIO
+from pathlib import Path
 
 import bcrypt
 
@@ -44,6 +45,10 @@ def test_registro_tienda_exitoso_retorna_201_y_crea_usuario_tienda(client, app):
     assert response.status_code == 201
     body = response.get_json()
     assert body["success"] is True
+    assert body["message"] == (
+        "Revisa tu correo para verificar tu cuenta. "
+        "Tu solicitud de tienda sera revisada por un administrador."
+    )
     assert body["data"]["nombre_comercial"] == "TechStore Ayacucho"
     assert body["data"]["ruc"] == "20601234567"
     assert body["data"]["correo"] == "tienda@gmail.com"
@@ -60,10 +65,11 @@ def test_registro_tienda_exitoso_retorna_201_y_crea_usuario_tienda(client, app):
         assert tienda is not None
         assert tienda.usuario_id == usuario.id
         assert usuario.rol == "TIENDA_VERIFICADA"
-        assert usuario.estado == "PENDIENTE_VERIFICACION"
+        assert usuario.estado == "EN_REVISION"
         assert tienda.estado == "EN_REVISION"
-        assert tienda.documento_identidad.startswith("uploads/tiendas/")
+        assert tienda.documento_identidad.startswith("uploads/documentos/")
         assert "documento.png" not in tienda.documento_identidad
+        assert Path(app.config["UPLOAD_FOLDER"], "documentos").exists()
         assert bcrypt.checkpw(
             "123456#P".encode("utf-8"),
             usuario.password_hash.encode("utf-8"),
@@ -112,6 +118,40 @@ def test_registro_tienda_ruc_invalido_retorna_422(client):
     assert body["success"] is False
     assert body["error"] == "VALIDATION_ERROR"
     assert "ruc" in body["data"]
+
+
+def test_registro_tienda_email_password_y_telefono_invalidos_retorna_422(client):
+    response = post_tienda(
+        client,
+        correo="correo-invalido",
+        password="abcdefg#",
+        telefono="123",
+    )
+
+    assert response.status_code == 422
+    body = response.get_json()
+    assert body["success"] is False
+    assert body["error"] == "VALIDATION_ERROR"
+    assert "correo" in body["data"]
+    assert "password" in body["data"]
+    assert "telefono" in body["data"]
+
+
+def test_registro_tienda_nombre_comercial_duplicado_retorna_409(client):
+    post_tienda(client)
+
+    response = post_tienda(
+        client,
+        ruc="20601234568",
+        correo="otra@gmail.com",
+        telefono="987654322",
+    )
+
+    assert response.status_code == 409
+    body = response.get_json()
+    assert body["success"] is False
+    assert body["error"] == "CONFLICT"
+    assert "nombre comercial" in body["message"].lower()
 
 
 def test_registro_tienda_sin_documento_retorna_400(client):

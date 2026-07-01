@@ -13,7 +13,7 @@ class TokenVerificacion(db.Model):
         nullable=False,
         index=True,
     )
-    token = db.Column(db.String(64), nullable=False, index=True)
+    token = db.Column(db.String(64), nullable=False, unique=True, index=True)
     tipo = db.Column(
         db.Enum("EMAIL_VERIFICATION"),
         nullable=False,

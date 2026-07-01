@@ -1,6 +1,6 @@
 ﻿-- ============================================================
 --  HardwareAyacucho â€” Esquema de Base de Datos MySQL
---  Generado desde HU-01 al HU-13
+--  Respaldo consistente del backend implementado hasta HU-12
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS hardware_ayacucho
@@ -29,15 +29,20 @@ CREATE TABLE usuarios (
                     )               NOT NULL DEFAULT 'USER_ESTANDAR',
     estado          ENUM(
                         'PENDIENTE_VERIFICACION',
+                        'EN_REVISION',
                         'ACTIVO',
-                        'BLOQUEADO'
+                        'BLOQUEADO',
+                        'BLOQUEADO_TEMP'
                     )               NOT NULL DEFAULT 'PENDIENTE_VERIFICACION',
+    intentos_fallidos TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    bloqueado_hasta DATETIME       NULL,
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
                                     ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE  KEY uq_usuarios_correo (correo)
+    UNIQUE  KEY uq_usuarios_correo (correo),
+    UNIQUE  KEY uq_usuarios_telefono (telefono)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
@@ -48,9 +53,9 @@ CREATE TABLE usuarios (
 CREATE TABLE tiendas (
     id                  INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     usuario_id          INT UNSIGNED    NOT NULL,
-    nombre_comercial    VARCHAR(150)    NOT NULL,
+    nombre_comercial    VARCHAR(100)    NOT NULL,
     ruc                 CHAR(11)        NOT NULL,
-    direccion           VARCHAR(255)    NOT NULL,
+    direccion           VARCHAR(200)    NOT NULL,
     documento_identidad VARCHAR(255)    NOT NULL,           -- ruta relativa, nombre UUID
     estado              ENUM(
                             'EN_REVISION',
@@ -62,8 +67,9 @@ CREATE TABLE tiendas (
                                         ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE  KEY uq_tiendas_ruc       (ruc),
-    UNIQUE  KEY uq_tiendas_usuario   (usuario_id),
+    UNIQUE  KEY uq_tiendas_nombre_comercial (nombre_comercial),
+    UNIQUE  KEY uq_tiendas_ruc             (ruc),
+    UNIQUE  KEY uq_tiendas_usuario         (usuario_id),
     CONSTRAINT fk_tiendas_usuario
         FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         ON DELETE CASCADE ON UPDATE CASCADE
@@ -86,6 +92,7 @@ CREATE TABLE tokens_verificacion (
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
+    UNIQUE KEY  uq_tokens_token       (token),
     INDEX       idx_tokens_token      (token),              -- HU-03: Ã­ndice requerido
     INDEX       idx_tokens_usuario    (usuario_id),
     CONSTRAINT fk_tokens_usuario
@@ -193,77 +200,7 @@ CREATE TABLE media_anuncio (
 
 
 -- ------------------------------------------------------------
--- 6. REPORTES
--- HU-13 (panel de moderaciÃ³n â€” reportar anuncio)
--- ------------------------------------------------------------
-CREATE TABLE reportes (
-    id          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-    anuncio_id  INT UNSIGNED    NOT NULL,
-    usuario_id  INT UNSIGNED    NOT NULL,               -- quien reporta
-    motivo      ENUM(
-                    'FRAUDE',
-                    'PRECIO_ENGAÃ‘OSO',
-                    'PRODUCTO_FALSO',
-                    'CONTENIDO_INAPROPIADO',
-                    'DUPLICADO',
-                    'OTRO'
-                )               NOT NULL,
-    estado      ENUM(
-                    'PENDIENTE',
-                    'REVISADO'
-                )               NOT NULL DEFAULT 'PENDIENTE',
-    created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
-                                ON UPDATE CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (id),
-    INDEX idx_reportes_anuncio  (anuncio_id),
-    INDEX idx_reportes_usuario  (usuario_id),
-    INDEX idx_reportes_estado   (estado),
-
-    -- Un usuario no puede tener dos reportes PENDIENTE sobre el mismo anuncio
-    UNIQUE KEY uq_reporte_pendiente (anuncio_id, usuario_id, estado),
-
-    CONSTRAINT fk_reportes_anuncio
-        FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_reportes_usuario
-        FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-        ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
--- ------------------------------------------------------------
--- 7. LOG DE MODERACIÃ“N
--- HU-13 (bloquear / desbloquear â€” auditorÃ­a permanente)
--- ------------------------------------------------------------
-CREATE TABLE moderacion_log (
-    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-    anuncio_id      INT UNSIGNED    NOT NULL,
-    admin_id        INT UNSIGNED    NOT NULL,
-    accion          ENUM(
-                        'BLOQUEADO',
-                        'DESBLOQUEADO'
-                    )               NOT NULL,
-    motivo_admin    TEXT            NULL,                   -- requerido al bloquear
-    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (id),
-    INDEX idx_modlog_anuncio (anuncio_id),
-    INDEX idx_modlog_admin   (admin_id),
-
-    -- AuditorÃ­a permanente: sin DELETE ni CASCADE
-    CONSTRAINT fk_modlog_anuncio
-        FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_modlog_admin
-        FOREIGN KEY (admin_id) REFERENCES usuarios (id)
-        ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
--- ------------------------------------------------------------
--- 8. LOG DE CONTACTOS (WhatsApp)
+-- 6. LOG DE CONTACTOS (WhatsApp)
 -- HU-12 (contacto directo)
 -- ------------------------------------------------------------
 CREATE TABLE contactos_log (
@@ -299,9 +236,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- tiendas             â†’ HU-02, HU-11
 -- tokens_verificacion â†’ HU-03
 -- anuncios            â†’ HU-05, HU-07, HU-08, HU-09, HU-10, HU-11
--- imagenes_anuncio    â†’ HU-06, HU-11
--- reportes            â†’ HU-13
--- moderacion_log      â†’ HU-13
+-- media_anuncio       â†’ HU-06, HU-11
 -- contactos_log       â†’ HU-12
 -- ============================================================
 

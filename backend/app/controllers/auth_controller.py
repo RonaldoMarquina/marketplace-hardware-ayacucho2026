@@ -17,12 +17,13 @@ def registrar_usuario_controller():
     try:
         datos_validados = schema.load(request_data, unknown=RAISE)
     except ValidationError as error:
+        status_code = _status_code_for_register_validation(error.messages)
         return jsonify({
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
             "message": "Campos invalidos.",
-        }), 400
+        }), status_code
 
     try:
         respuesta = AuthService.registrar_usuario(datos_validados)
@@ -44,13 +45,21 @@ def registrar_usuario_controller():
     return jsonify(respuesta), 500
 
 
+def _status_code_for_register_validation(error_messages):
+    for mensajes in error_messages.values():
+        if any("obligatorio" in mensaje.lower() for mensaje in mensajes):
+            return 400
+
+    return 422
+
+
 def registrar_tienda_controller():
     schema = RegistroTiendaSchema()
 
     try:
         datos_validados = schema.load(request.form, unknown=RAISE)
     except ValidationError as error:
-        status_code = 422 if "ruc" in error.messages or "password" in error.messages else 400
+        status_code = _status_code_for_register_validation(error.messages)
         return jsonify({
             "success": False,
             "data": error.messages,
@@ -96,12 +105,13 @@ def login_controller():
     try:
         datos_validados = schema.load(request_data, unknown=RAISE)
     except ValidationError as error:
+        status_code = _status_code_for_register_validation(error.messages)
         return jsonify({
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
             "message": "Campos invalidos.",
-        }), 400
+        }), status_code
 
     try:
         respuesta = AuthService.login(datos_validados, request.remote_addr)
@@ -117,8 +127,9 @@ def login_controller():
     status_by_error = {
         "INVALID_CREDENTIALS": 401,
         "ACCOUNT_PENDING": 403,
+        "ACCOUNT_IN_REVIEW": 403,
         "ACCOUNT_BLOCKED": 403,
-        "RATE_LIMIT": 429,
+        "RATE_LIMIT_LOGIN": 429,
     }
     return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)
 
@@ -181,6 +192,7 @@ def reenviar_verificacion_controller():
     status_by_error = {
         "NOT_FOUND": 404,
         "CONFLICT": 409,
+        "RATE_LIMIT_REENVIO": 429,
         "DATABASE_ERROR": 500,
     }
     return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)

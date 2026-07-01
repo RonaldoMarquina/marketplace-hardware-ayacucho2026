@@ -13,9 +13,9 @@ class Tienda(db.Model):
         nullable=False,
         unique=True,
     )
-    nombre_comercial = db.Column(db.String(150), nullable=False)
+    nombre_comercial = db.Column(db.String(100), nullable=False, unique=True)
     ruc = db.Column(db.String(11), nullable=False, unique=True)
-    direccion = db.Column(db.String(255), nullable=False)
+    direccion = db.Column(db.String(200), nullable=False)
     documento_identidad = db.Column(db.String(255), nullable=False)
     estado = db.Column(
         db.Enum("EN_REVISION", "ACTIVO", "RECHAZADO"),

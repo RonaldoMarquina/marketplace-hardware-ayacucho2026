@@ -64,10 +64,14 @@ def validate_store_document(file_storage, upload_folder, max_size_bytes):
         )
 
     filename = f"{uuid4().hex}.{extension}"
-    relative_path = Path("uploads") / "tiendas" / filename
-    absolute_folder = Path(upload_folder) / "tiendas"
-    absolute_folder.mkdir(parents=True, exist_ok=True)
+    relative_path = Path("uploads") / "documentos" / filename
+    absolute_folder = Path(upload_folder) / "documentos"
     absolute_path = absolute_folder / filename
-    file_storage.save(absolute_path)
 
     return str(relative_path).replace("\\", "/"), absolute_path
+
+
+def persist_store_document(file_storage, absolute_path):
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
+    file_storage.stream.seek(0)
+    file_storage.save(absolute_path)
