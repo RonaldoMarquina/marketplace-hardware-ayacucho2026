@@ -2,7 +2,13 @@ from flask import current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from marshmallow import RAISE, ValidationError
 
-from app.schemas.anuncio_schema import BuscarAnunciosSchema, CrearAnuncioSchema, EditarAnuncioSchema, ReordenarMediaSchema
+from app.schemas.anuncio_schema import (
+    BuscarAnunciosSchema,
+    CrearAnuncioSchema,
+    EditarAnuncioSchema,
+    ReportarAnuncioSchema,
+    ReordenarMediaSchema,
+)
 from app.services.anuncio_service import AnuncioService
 
 
@@ -340,6 +346,41 @@ def reemplazar_media_controller(anuncio_id, media_id):
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
 
 
+def reportar_anuncio_controller(anuncio_id):
+    request_data = request.get_json(silent=True) or {}
+    schema = ReportarAnuncioSchema()
+
+    try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
+        anuncio_id_int = _parse_positive_int(anuncio_id, "anuncio_id")
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.reportar_anuncio(anuncio_id_int, usuario_id, datos_validados["motivo"])
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), 422
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+    except Exception:
+        current_app.logger.exception("Error inesperado al reportar anuncio")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
+
+
 def _hay_campos_obligatorios(messages):
     texto = str(messages).lower()
     return "obligatori" in texto or "missing" in texto or "required" in texto
@@ -368,6 +409,7 @@ def _status_for_anuncio_response(respuesta, success_status):
         "VALIDATION_ERROR": 422,
         "RATE_LIMIT_DIARIO": 429,
         "RATE_LIMIT_ANUNCIO": 429,
+        "RATE_LIMIT_REPORTES": 429,
         "FILE_DELETE_ERROR": 500,
         "DATABASE_ERROR": 500,
     }

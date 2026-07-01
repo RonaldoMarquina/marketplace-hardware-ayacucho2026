@@ -13,6 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.models.anuncio import SUBCATEGORIAS_POR_CATEGORIA, Anuncio
 from app.models.contacto_log import ContactoLog
 from app.models.media_anuncio import MediaAnuncio
+from app.models.moderacion_log import ModeracionLog
+from app.models.reporte import Reporte
 from app.repositories.anuncio_repository import AnuncioRepository
 from app.utils.media_validation import MediaValidationError, classify_media, validate_and_store_media
 
@@ -33,6 +35,7 @@ MAX_IMAGENES_POR_ANUNCIO = 8
 MAX_VIDEOS_POR_ANUNCIO = 1
 MAX_CONTACTOS_DIARIOS = 20
 CONTACTO_RETRY_MINUTES = 60
+MAX_REPORTES_DIARIOS = 10
 try:
     PERU_TIMEZONE = ZoneInfo("America/Lima")
 except ZoneInfoNotFoundError:
@@ -486,6 +489,210 @@ class AnuncioService:
             return _error_response("DATABASE_ERROR", "No se pudo reactivar el anuncio.")
 
     @staticmethod
+    def reportar_anuncio(anuncio_id, comprador_id, motivo):
+        usuario = AnuncioRepository.buscar_usuario_por_id(comprador_id)
+        if not usuario or usuario.estado != "ACTIVO":
+            return _error_response("FORBIDDEN", "La cuenta debe estar activa para reportar anuncios.")
+
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
+        if not anuncio or anuncio.estado != "ACTIVO":
+            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+
+        if anuncio.usuario_id == comprador_id:
+            return _error_response("CONFLICT", "No puedes reportar tu propio anuncio.")
+
+        ultimo_desbloqueo = AnuncioRepository.buscar_ultimo_desbloqueo_anuncio(anuncio_id)
+        created_at_min = ultimo_desbloqueo.created_at if ultimo_desbloqueo else None
+        reporte_duplicado = AnuncioRepository.buscar_reporte_duplicado_en_ciclo(
+            comprador_id,
+            anuncio_id,
+            created_at_min=created_at_min,
+        )
+        if reporte_duplicado:
+            return _error_response(
+                "CONFLICT",
+                "Ya reportaste este anuncio en su ciclo activo actual.",
+            )
+
+        day_start, day_end = _day_bounds_peru()
+        reportes_hoy = AnuncioRepository.contar_reportes_usuario_hoy(comprador_id, day_start, day_end)
+        if reportes_hoy >= MAX_REPORTES_DIARIOS:
+            return _error_response(
+                "RATE_LIMIT_REPORTES",
+                "Alcanzaste el limite de 10 reportes por dia.",
+                {"disponible_en": day_end.isoformat()},
+            )
+
+        try:
+            reporte = Reporte(
+                comprador_id=comprador_id,
+                anuncio_id=anuncio_id,
+                motivo=motivo,
+                estado="PENDIENTE",
+                created_at=_utcnow_naive(),
+            )
+            AnuncioRepository.agregar_reporte(reporte)
+            AnuncioRepository.commit()
+            return {
+                "success": True,
+                "data": {
+                    "reporte_id": reporte.id,
+                    "anuncio_id": anuncio_id,
+                    "motivo": reporte.motivo,
+                    "estado": reporte.estado,
+                    "created_at": reporte.created_at.isoformat() if reporte.created_at else None,
+                },
+                "error": None,
+                "message": "Reporte registrado correctamente.",
+            }
+        except SQLAlchemyError:
+            AnuncioRepository.rollback()
+            return _error_response("DATABASE_ERROR", "No se pudo registrar el reporte.")
+
+    @staticmethod
+    def listar_anuncios_reportados(page, limit):
+        offset = (page - 1) * limit
+        registros, total = AnuncioRepository.listar_anuncios_reportados(offset, limit)
+
+        data = []
+        for item in registros:
+            data.append({
+                "anuncio_id": item.anuncio_id,
+                "titulo": item.titulo,
+                "categoria": item.categoria,
+                "subcategoria": item.subcategoria,
+                "estado_anuncio": item.estado_anuncio,
+                "vendedor_id": item.vendedor_id,
+                "vendedor_nombre": item.vendedor_nombre,
+                "es_tienda_verificada": item.vendedor_rol == "TIENDA_VERIFICADA",
+                "total_reportes": item.total_reportes,
+                "motivos": item.motivos.split(",") if item.motivos else [],
+                "ultimo_reporte": item.ultimo_reporte.isoformat() if item.ultimo_reporte else None,
+            })
+
+        total_paginas = ceil(total / limit) if total else 0
+        return {
+            "success": True,
+            "data": data,
+            "error": None,
+            "message": "Anuncios reportados obtenidos correctamente.",
+            "total_pendientes": total,
+            "paginacion": {
+                "total": total,
+                "pagina_actual": page,
+                "total_paginas": total_paginas,
+                "limit": limit,
+                "tiene_siguiente": page < total_paginas,
+                "tiene_anterior": page > 1 and total > 0,
+            },
+        }
+
+    @staticmethod
+    def bloquear_anuncio_admin(anuncio_id, admin_id, motivo_admin):
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
+        if not anuncio:
+            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+        if anuncio.estado != "ACTIVO":
+            return _error_response("CONFLICT", "Solo se puede bloquear un anuncio activo.")
+
+        try:
+            anuncio.estado = "BLOQUEADO"
+            AnuncioRepository.marcar_reportes_revisados(anuncio_id)
+            log_entry = ModeracionLog(
+                admin_id=admin_id,
+                anuncio_id=anuncio_id,
+                accion="BLOQUEADO",
+                motivo_admin=motivo_admin,
+                created_at=_utcnow_naive(),
+            )
+            AnuncioRepository.agregar_moderacion_log(log_entry)
+            AnuncioRepository.commit()
+            return {
+                "success": True,
+                "data": {
+                    "anuncio_id": anuncio.id,
+                    "estado": anuncio.estado,
+                    "motivo_admin": motivo_admin,
+                    "admin_id": admin_id,
+                    "updated_at": anuncio.updated_at.isoformat() if anuncio.updated_at else None,
+                },
+                "error": None,
+                "message": "Anuncio bloqueado correctamente.",
+            }
+        except SQLAlchemyError:
+            AnuncioRepository.rollback()
+            return _error_response("DATABASE_ERROR", "No se pudo bloquear el anuncio.")
+
+    @staticmethod
+    def desbloquear_anuncio_admin(anuncio_id, admin_id, motivo_admin):
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
+        if not anuncio:
+            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+        if anuncio.estado != "BLOQUEADO":
+            return _error_response("CONFLICT", "Solo se puede desbloquear un anuncio bloqueado.")
+
+        try:
+            anuncio.estado = "ACTIVO"
+            log_entry = ModeracionLog(
+                admin_id=admin_id,
+                anuncio_id=anuncio_id,
+                accion="DESBLOQUEADO",
+                motivo_admin=motivo_admin,
+                created_at=_utcnow_naive(),
+            )
+            AnuncioRepository.agregar_moderacion_log(log_entry)
+            AnuncioRepository.commit()
+            return {
+                "success": True,
+                "data": {
+                    "anuncio_id": anuncio.id,
+                    "estado": anuncio.estado,
+                    "motivo_admin": motivo_admin,
+                    "admin_id": admin_id,
+                    "updated_at": anuncio.updated_at.isoformat() if anuncio.updated_at else None,
+                },
+                "error": None,
+                "message": "Anuncio desbloqueado correctamente.",
+            }
+        except SQLAlchemyError:
+            AnuncioRepository.rollback()
+            return _error_response("DATABASE_ERROR", "No se pudo desbloquear el anuncio.")
+
+    @staticmethod
+    def listar_historial_moderacion(page, limit):
+        offset = (page - 1) * limit
+        registros, total = AnuncioRepository.listar_historial_moderacion(offset, limit)
+
+        data = []
+        for log_entry, admin_nombre, anuncio_titulo in registros:
+            data.append({
+                "id": log_entry.id,
+                "admin_id": log_entry.admin_id,
+                "admin_nombre": admin_nombre,
+                "anuncio_id": log_entry.anuncio_id,
+                "anuncio_titulo": anuncio_titulo,
+                "accion": log_entry.accion,
+                "motivo_admin": log_entry.motivo_admin,
+                "created_at": log_entry.created_at.isoformat() if log_entry.created_at else None,
+            })
+
+        total_paginas = ceil(total / limit) if total else 0
+        return {
+            "success": True,
+            "data": data,
+            "error": None,
+            "message": "Historial de moderacion obtenido correctamente.",
+            "paginacion": {
+                "total": total,
+                "pagina_actual": page,
+                "total_paginas": total_paginas,
+                "limit": limit,
+                "tiene_siguiente": page < total_paginas,
+                "tiene_anterior": page > 1 and total > 0,
+            },
+        }
+
+    @staticmethod
     def subir_media(anuncio_id, usuario_id, files, upload_folder):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
@@ -793,6 +1000,20 @@ def _error_response(error_code, message, data=None):
         "error": error_code,
         "message": message,
     }
+
+
+def _utcnow_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _day_bounds_peru(reference=None):
+    now_utc = reference or datetime.now(UTC)
+    now_local = now_utc.astimezone(PERU_TIMEZONE) if PERU_TIMEZONE else now_utc
+    start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(UTC).replace(tzinfo=None) if PERU_TIMEZONE else start_local.replace(tzinfo=None)
+    end_utc = end_local.astimezone(UTC).replace(tzinfo=None) if PERU_TIMEZONE else end_local.replace(tzinfo=None)
+    return start_utc, end_utc
 
 
 def _validar_propietario(anuncio, usuario_id):

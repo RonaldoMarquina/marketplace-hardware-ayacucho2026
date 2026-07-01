@@ -11,6 +11,7 @@ from app.controllers.anuncio_controller import (
     feed_anuncios_controller,
     marcar_vendido_controller,
     publicar_anuncio_controller,
+    reportar_anuncio_controller,
     reactivar_anuncio_controller,
     reordenar_media_controller,
     reemplazar_media_controller,
@@ -53,6 +54,12 @@ anuncios_bp.add_url_rule(
 anuncios_bp.add_url_rule(
     "/<int:anuncio_id>/media",
     view_func=jwt_required()(subir_media_controller),
+    methods=["POST"],
+)
+
+anuncios_bp.add_url_rule(
+    "/<int:anuncio_id>/reportar",
+    view_func=jwt_required()(reportar_anuncio_controller),
     methods=["POST"],
 )
 

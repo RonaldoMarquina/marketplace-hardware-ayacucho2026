@@ -1,6 +1,6 @@
 ﻿-- ============================================================
 --  HardwareAyacucho â€” Esquema de Base de Datos MySQL
---  Respaldo consistente del backend implementado hasta HU-12
+--  Respaldo consistente del backend implementado hasta HU-13
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS hardware_ayacucho
@@ -200,7 +200,74 @@ CREATE TABLE media_anuncio (
 
 
 -- ------------------------------------------------------------
--- 6. LOG DE CONTACTOS (WhatsApp)
+-- 6. REPORTES DE ANUNCIOS
+-- HU-13 (moderacion)
+-- ------------------------------------------------------------
+CREATE TABLE reportes (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    comprador_id    INT UNSIGNED    NOT NULL,
+    anuncio_id      INT UNSIGNED    NOT NULL,
+    motivo          ENUM(
+                        'FRAUDE',
+                        'PRECIO_ENGANOSO',
+                        'PRODUCTO_FALSO',
+                        'CONTENIDO_INAPROPIADO',
+                        'DUPLICADO',
+                        'OTRO'
+                    )               NOT NULL,
+    estado          ENUM(
+                        'PENDIENTE',
+                        'REVISADO'
+                    )               NOT NULL DEFAULT 'PENDIENTE',
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX idx_reportes_comprador   (comprador_id),
+    INDEX idx_reportes_anuncio     (anuncio_id),
+    INDEX idx_reportes_estado      (estado),
+    INDEX idx_reportes_created_at  (created_at),
+
+    CONSTRAINT fk_reportes_comprador
+        FOREIGN KEY (comprador_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_reportes_anuncio
+        FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ------------------------------------------------------------
+-- 7. AUDITORIA DE MODERACION
+-- HU-13 (moderacion admin)
+-- ------------------------------------------------------------
+CREATE TABLE moderacion_log (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    admin_id        INT UNSIGNED    NOT NULL,
+    anuncio_id      INT UNSIGNED    NOT NULL,
+    accion          ENUM(
+                        'BLOQUEADO',
+                        'DESBLOQUEADO'
+                    )               NOT NULL,
+    motivo_admin    TEXT            NOT NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX idx_moderacion_admin      (admin_id),
+    INDEX idx_moderacion_anuncio    (anuncio_id),
+    INDEX idx_moderacion_accion     (accion),
+    INDEX idx_moderacion_created_at (created_at),
+
+    CONSTRAINT fk_moderacion_admin
+        FOREIGN KEY (admin_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_moderacion_anuncio
+        FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ------------------------------------------------------------
+-- 8. LOG DE CONTACTOS (WhatsApp)
 -- HU-12 (contacto directo)
 -- ------------------------------------------------------------
 CREATE TABLE contactos_log (
@@ -237,8 +304,9 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- tokens_verificacion â†’ HU-03
 -- anuncios            â†’ HU-05, HU-07, HU-08, HU-09, HU-10, HU-11
 -- media_anuncio       â†’ HU-06, HU-11
+-- reportes            â†’ HU-13
+-- moderacion_log      â†’ HU-13
 -- contactos_log       â†’ HU-12
 -- ============================================================
-
 
 

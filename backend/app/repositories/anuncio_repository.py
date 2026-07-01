@@ -2,6 +2,8 @@ from app import db
 from app.models.anuncio import Anuncio
 from app.models.contacto_log import ContactoLog
 from app.models.media_anuncio import MediaAnuncio
+from app.models.moderacion_log import ModeracionLog
+from app.models.reporte import Reporte
 from app.models.tienda import Tienda
 from app.models.usuario import Usuario
 
@@ -141,6 +143,108 @@ class AnuncioRepository:
         ).order_by(ContactoLog.created_at.desc(), ContactoLog.id.desc()).first()
 
     @staticmethod
+    def buscar_ultimo_desbloqueo_anuncio(anuncio_id):
+        return ModeracionLog.query.filter(
+            ModeracionLog.anuncio_id == anuncio_id,
+            ModeracionLog.accion == "DESBLOQUEADO",
+        ).order_by(ModeracionLog.created_at.desc(), ModeracionLog.id.desc()).first()
+
+    @staticmethod
+    def buscar_reporte_duplicado_en_ciclo(comprador_id, anuncio_id, created_at_min=None):
+        query = Reporte.query.filter(
+            Reporte.comprador_id == comprador_id,
+            Reporte.anuncio_id == anuncio_id,
+            Reporte.estado.in_(("PENDIENTE", "REVISADO")),
+        )
+        if created_at_min is not None:
+            query = query.filter(Reporte.created_at >= created_at_min)
+        return query.order_by(Reporte.created_at.desc(), Reporte.id.desc()).first()
+
+    @staticmethod
+    def contar_reportes_usuario_hoy(comprador_id, day_start, day_end):
+        return Reporte.query.filter(
+            Reporte.comprador_id == comprador_id,
+            Reporte.created_at >= day_start,
+            Reporte.created_at < day_end,
+        ).count()
+
+    @staticmethod
+    def listar_anuncios_reportados(offset, limit):
+        total_reportes = db.func.count(Reporte.id)
+        ultimo_reporte = db.func.max(Reporte.created_at)
+        motivos = db.func.group_concat(Reporte.motivo, ",")
+
+        query = db.session.query(
+            Anuncio.id.label("anuncio_id"),
+            Anuncio.titulo,
+            Anuncio.categoria,
+            Anuncio.subcategoria,
+            Anuncio.estado.label("estado_anuncio"),
+            Usuario.id.label("vendedor_id"),
+            Usuario.nombre.label("vendedor_nombre"),
+            Usuario.rol.label("vendedor_rol"),
+            total_reportes.label("total_reportes"),
+            motivos.label("motivos"),
+            ultimo_reporte.label("ultimo_reporte"),
+        ).join(
+            Reporte,
+            Reporte.anuncio_id == Anuncio.id,
+        ).join(
+            Usuario,
+            Usuario.id == Anuncio.usuario_id,
+        ).filter(
+            Reporte.estado == "PENDIENTE",
+        ).group_by(
+            Anuncio.id,
+            Anuncio.titulo,
+            Anuncio.categoria,
+            Anuncio.subcategoria,
+            Anuncio.estado,
+            Usuario.id,
+            Usuario.nombre,
+            Usuario.rol,
+        ).order_by(
+            total_reportes.desc(),
+            ultimo_reporte.desc(),
+            Anuncio.id.desc(),
+        )
+
+        total = db.session.query(db.func.count()).select_from(query.order_by(None).subquery()).scalar()
+        items = query.offset(offset).limit(limit).all()
+        return items, total
+
+    @staticmethod
+    def contar_reportes_pendientes(anuncio_id):
+        return Reporte.query.filter_by(anuncio_id=anuncio_id, estado="PENDIENTE").count()
+
+    @staticmethod
+    def marcar_reportes_revisados(anuncio_id):
+        return Reporte.query.filter_by(anuncio_id=anuncio_id, estado="PENDIENTE").update(
+            {"estado": "REVISADO"},
+            synchronize_session=False,
+        )
+
+    @staticmethod
+    def listar_historial_moderacion(offset, limit):
+        query = db.session.query(
+            ModeracionLog,
+            Usuario.nombre.label("admin_nombre"),
+            Anuncio.titulo.label("anuncio_titulo"),
+        ).join(
+            Usuario,
+            Usuario.id == ModeracionLog.admin_id,
+        ).join(
+            Anuncio,
+            Anuncio.id == ModeracionLog.anuncio_id,
+        ).order_by(
+            ModeracionLog.created_at.desc(),
+            ModeracionLog.id.desc(),
+        )
+        total = db.session.query(db.func.count()).select_from(query.order_by(None).subquery()).scalar()
+        items = query.offset(offset).limit(limit).all()
+        return items, total
+
+    @staticmethod
     def agregar(anuncio):
         db.session.add(anuncio)
 
@@ -151,6 +255,14 @@ class AnuncioRepository:
     @staticmethod
     def agregar_contacto_log(contacto_log):
         db.session.add(contacto_log)
+
+    @staticmethod
+    def agregar_reporte(reporte):
+        db.session.add(reporte)
+
+    @staticmethod
+    def agregar_moderacion_log(log_entry):
+        db.session.add(log_entry)
 
     @staticmethod
     def eliminar_media(media):

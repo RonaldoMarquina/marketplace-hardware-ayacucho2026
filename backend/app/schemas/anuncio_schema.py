@@ -8,6 +8,7 @@ from app.models.anuncio import (
     SUBCATEGORIAS_ANUNCIO,
     SUBCATEGORIAS_POR_CATEGORIA,
 )
+from app.models.reporte import MOTIVOS_REPORTE
 
 
 class CrearAnuncioSchema(Schema):
@@ -225,6 +226,42 @@ class BuscarAnunciosSchema(Schema):
             raise ValidationError(
                 {"precio_min": ["precio_min no puede ser mayor que precio_max."]}
             )
+
+
+class ReportarAnuncioSchema(Schema):
+    motivo = fields.String(
+        required=True,
+        validate=validate.OneOf(MOTIVOS_REPORTE),
+        error_messages={"required": "El motivo es obligatorio."},
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+
+        datos = data.copy()
+        if isinstance(datos.get("motivo"), str):
+            datos["motivo"] = _normalizar_taxonomia(datos["motivo"])
+        return datos
+
+
+class MotivoAdminSchema(Schema):
+    motivo_admin = fields.String(
+        required=True,
+        validate=validate.Length(min=1, max=500),
+        error_messages={"required": "El motivo_admin es obligatorio."},
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+
+        datos = data.copy()
+        if isinstance(datos.get("motivo_admin"), str):
+            datos["motivo_admin"] = datos["motivo_admin"].strip()
+        return datos
 
 
 def _normalizar_taxonomia(value):

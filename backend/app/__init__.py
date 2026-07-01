@@ -45,11 +45,13 @@ def create_app(test_config=None):
 
     _registrar_manejadores_jwt(jwt)
 
+    from app.routes.admin import admin_bp
     from app.routes.anuncios import anuncios_bp
     from app.routes.auth import auth_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(anuncios_bp, url_prefix="/api/v1/anuncios")
+    app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
 
     return app
 
