@@ -40,7 +40,7 @@ def crear_usuario(correo="vendedor_media@gmail.com"):
     return usuario
 
 
-def crear_anuncio(usuario):
+def crear_anuncio(usuario, **overrides):
     anuncio = Anuncio(
         usuario_id=usuario.id,
         titulo="Ryzen 5",
@@ -51,6 +51,8 @@ def crear_anuncio(usuario):
         precio="100.00",
         estado="ACTIVO",
     )
+    for campo, valor in overrides.items():
+        setattr(anuncio, campo, valor)
     db.session.add(anuncio)
     db.session.commit()
     return anuncio
@@ -173,6 +175,44 @@ def test_subir_media_sin_archivos_retorna_400(client, app):
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "MISSING_FILE"
+
+
+def test_subir_media_anuncio_inactivo_permitido(client, app):
+    with app.app_context():
+        usuario = crear_usuario("inactivo_media@gmail.com")
+        anuncio = crear_anuncio(usuario, estado="INACTIVO")
+        token = token_para(usuario)
+        anuncio_id = anuncio.id
+
+    response = client.post(
+        media_url(anuncio_id),
+        data={"media": [file_tuple(PNG_BYTES, "foto.png")]},
+        content_type="multipart/form-data",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 201
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["data"]["media"][0]["tipo_media"] == "imagen"
+
+
+def test_subir_media_anuncio_vendido_retorna_409(client, app):
+    with app.app_context():
+        usuario = crear_usuario("vendido_media@gmail.com")
+        anuncio = crear_anuncio(usuario, estado="VENDIDO")
+        token = token_para(usuario)
+        anuncio_id = anuncio.id
+
+    response = client.post(
+        media_url(anuncio_id),
+        data={"media": [file_tuple(PNG_BYTES, "foto.png")]},
+        content_type="multipart/form-data",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CONFLICT"
 
 
 def test_subir_gif_retorna_422(client, app):

@@ -156,6 +156,26 @@ def test_editar_anuncio_categoria_sin_subcategoria_retorna_422(client, app):
     assert "subcategoria" in body["data"]
 
 
+def test_editar_anuncio_inactivo_permite_cambios(client, app):
+    with app.app_context():
+        usuario = crear_usuario("inactivo@gmail.com")
+        anuncio = crear_anuncio(usuario, estado="INACTIVO")
+        token = token_para(usuario)
+        anuncio_id = anuncio.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}",
+        json={"titulo": "Ryzen 5 actualizado"},
+        headers=headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["data"]["titulo"] == "Ryzen 5 actualizado"
+    assert body["data"]["estado"] == "INACTIVO"
+
+
 def test_marcar_anuncio_vendido_exitoso(client, app):
     with app.app_context():
         usuario = crear_usuario()
@@ -184,6 +204,22 @@ def test_marcar_anuncio_vendido_desde_inactivo_retorna_409(client, app):
 
     response = client.patch(
         f"/api/v1/anuncios/{anuncio_id}/vendido",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CONFLICT"
+
+
+def test_reactivar_anuncio_bloqueado_retorna_409(client, app):
+    with app.app_context():
+        usuario = crear_usuario("bloqueado@gmail.com")
+        anuncio = crear_anuncio(usuario, estado="BLOQUEADO")
+        token = token_para(usuario)
+        anuncio_id = anuncio.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/reactivar",
         headers=headers(token),
     )
 

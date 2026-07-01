@@ -495,6 +495,10 @@ class AnuncioService:
         if ownership_error:
             return ownership_error
 
+        status_error = _validar_estado_operacion_media(anuncio)
+        if status_error:
+            return status_error
+
         archivos = [file for file in files if file and file.filename]
         if not archivos:
             return _error_response("MISSING_FILE", "Debe adjuntar al menos un archivo.")
@@ -802,14 +806,12 @@ def _validar_estado_edicion(anuncio):
         return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio vendido no puede modificarse.")
-    if anuncio.estado == "INACTIVO":
-        return _error_response("CONFLICT", "El anuncio inactivo no puede modificarse.")
     return None
 
 
 def _validar_estado_para_vendido(anuncio):
     if anuncio.estado == "BLOQUEADO":
-        return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
+        return _error_response("CONFLICT", "El anuncio bloqueado no puede marcarse como vendido.")
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio ya se encuentra vendido.")
     if anuncio.estado == "INACTIVO":
@@ -819,7 +821,7 @@ def _validar_estado_para_vendido(anuncio):
 
 def _validar_estado_para_desactivar(anuncio):
     if anuncio.estado == "BLOQUEADO":
-        return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
+        return _error_response("CONFLICT", "El anuncio bloqueado no puede desactivarse.")
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio vendido no puede desactivarse.")
     if anuncio.estado == "INACTIVO":
@@ -829,7 +831,7 @@ def _validar_estado_para_desactivar(anuncio):
 
 def _validar_estado_para_reactivar(anuncio):
     if anuncio.estado == "BLOQUEADO":
-        return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
+        return _error_response("CONFLICT", "El anuncio bloqueado no puede reactivarse.")
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio vendido no puede reactivarse.")
     if anuncio.estado == "ACTIVO":
@@ -842,8 +844,6 @@ def _validar_estado_operacion_media(anuncio):
         return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio vendido no permite cambios de media.")
-    if anuncio.estado == "INACTIVO":
-        return _error_response("CONFLICT", "El anuncio inactivo no permite cambios de media.")
     return None
 
 
