@@ -133,6 +133,13 @@ class Anuncio(db.Model):
         default=0,
         server_default="0",
     )
+    comprador_id = db.Column(
+        db.Integer,
+        db.ForeignKey("usuarios.id", ondelete="SET NULL", onupdate="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    vendido_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(
         db.DateTime,
         nullable=False,
@@ -146,7 +153,16 @@ class Anuncio(db.Model):
         onupdate=db.func.current_timestamp(),
     )
 
-    usuario = db.relationship("Usuario", backref=db.backref("anuncios", lazy=True))
+    usuario = db.relationship(
+        "Usuario",
+        foreign_keys=[usuario_id],
+        backref=db.backref("anuncios", lazy=True, foreign_keys=[usuario_id]),
+    )
+    comprador = db.relationship(
+        "Usuario",
+        foreign_keys=[comprador_id],
+        lazy=True,
+    )
 
     def to_public_dict(self):
         precio = self.precio
@@ -164,6 +180,8 @@ class Anuncio(db.Model):
             "especificaciones": self.especificaciones,
             "estado": self.estado,
             "reactivaciones_count": self.reactivaciones_count,
+            "comprador_id": self.comprador_id,
+            "vendido_at": self.vendido_at.isoformat() if self.vendido_at else None,
             "usuario_id": self.usuario_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

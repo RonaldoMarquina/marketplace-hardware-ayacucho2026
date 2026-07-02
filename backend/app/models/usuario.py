@@ -22,6 +22,7 @@ class Usuario(db.Model):
         db.Enum(
             "PENDIENTE_VERIFICACION",
             "EN_REVISION",
+            "RECHAZADO",
             "ACTIVO",
             "BLOQUEADO",
             "BLOQUEADO_TEMP",
@@ -30,6 +31,20 @@ class Usuario(db.Model):
         default="PENDIENTE_VERIFICACION",
     )
     intentos_fallidos = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    calificacion_promedio_vendedor = db.Column(db.Numeric(3, 1), nullable=True)
+    total_calificaciones_vendedor = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    calificacion_promedio_comprador = db.Column(db.Numeric(3, 1), nullable=True)
+    total_calificaciones_comprador = db.Column(
         db.Integer,
         nullable=False,
         default=0,
@@ -57,4 +72,16 @@ class Usuario(db.Model):
             "correo": self.correo,
             "rol": self.rol,
             "estado": self.estado,
+            "calificacion_promedio_vendedor": (
+                float(self.calificacion_promedio_vendedor)
+                if self.calificacion_promedio_vendedor is not None
+                else None
+            ),
+            "total_calificaciones_vendedor": self.total_calificaciones_vendedor,
+            "calificacion_promedio_comprador": (
+                float(self.calificacion_promedio_comprador)
+                if self.calificacion_promedio_comprador is not None
+                else None
+            ),
+            "total_calificaciones_comprador": self.total_calificaciones_comprador,
         }

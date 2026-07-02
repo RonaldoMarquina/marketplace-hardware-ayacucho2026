@@ -2,7 +2,7 @@
 
 
 class TokenVerificacion(db.Model):
-    """Token de un solo uso para verificar correos electronicos."""
+    """Token de un solo uso para verificar correo o resetear password."""
 
     __tablename__ = "tokens_verificacion"
 
@@ -15,7 +15,7 @@ class TokenVerificacion(db.Model):
     )
     token = db.Column(db.String(64), nullable=False, unique=True, index=True)
     tipo = db.Column(
-        db.Enum("EMAIL_VERIFICATION"),
+        db.Enum("EMAIL_VERIFICATION", "PASSWORD_RESET"),
         nullable=False,
         default="EMAIL_VERIFICATION",
     )

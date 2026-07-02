@@ -6,6 +6,7 @@ from app.schemas.anuncio_schema import (
     BuscarAnunciosSchema,
     CrearAnuncioSchema,
     EditarAnuncioSchema,
+    MarcarVendidoSchema,
     ReportarAnuncioSchema,
     ReordenarMediaSchema,
 )
@@ -200,9 +201,25 @@ def editar_anuncio_controller(anuncio_id):
 
 
 def marcar_vendido_controller(anuncio_id):
+    request_data = request.get_json(silent=True) or {}
+    schema = MarcarVendidoSchema()
+
     try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
         usuario_id = int(get_jwt_identity())
-        respuesta = AnuncioService.marcar_anuncio_vendido(anuncio_id, usuario_id)
+        respuesta = AnuncioService.marcar_anuncio_vendido(
+            anuncio_id,
+            usuario_id,
+            datos_validados["comprador_id"],
+        )
+    except ValidationError as error:
+        status_code = 400 if _hay_campos_obligatorios(error.messages) else 422
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), status_code
     except Exception:
         current_app.logger.exception("Error inesperado al marcar anuncio como vendido")
         return jsonify({

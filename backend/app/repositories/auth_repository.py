@@ -41,6 +41,10 @@ class AuthRepository:
         return TokenVerificacion.query.filter_by(token=token).first()
 
     @staticmethod
+    def buscar_token_por_valor_y_tipo(token, tipo):
+        return TokenVerificacion.query.filter_by(token=token, tipo=tipo).first()
+
+    @staticmethod
     def buscar_tokens_activos_usuario(usuario_id, tipo="EMAIL_VERIFICATION"):
         return TokenVerificacion.query.filter_by(
             usuario_id=usuario_id,
@@ -62,6 +66,14 @@ class AuthRepository:
             TokenVerificacion.tipo == tipo,
             TokenVerificacion.created_at >= desde,
         ).count()
+
+    @staticmethod
+    def listar_tokens_recientes_usuario(usuario_id, desde, tipo):
+        return TokenVerificacion.query.filter(
+            TokenVerificacion.usuario_id == usuario_id,
+            TokenVerificacion.tipo == tipo,
+            TokenVerificacion.created_at >= desde,
+        ).order_by(TokenVerificacion.created_at.asc(), TokenVerificacion.id.asc()).all()
 
     @staticmethod
     def agregar_usuario(usuario):

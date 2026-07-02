@@ -1,4 +1,12 @@
-﻿from marshmallow import Schema, ValidationError, fields, pre_load, validate, validates
+from marshmallow import Schema, ValidationError, fields, pre_load, validate, validates
+
+
+PASSWORD_COMPLEXITY_REGEX = (
+    r"^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?\":{}|<>]).{8,}$"
+)
+PASSWORD_COMPLEXITY_MESSAGE = (
+    "La contrasena debe tener al menos 8 caracteres, una mayuscula, un numero y un caracter especial."
+)
 
 
 class RegistroUsuarioSchema(Schema):
@@ -24,8 +32,8 @@ class RegistroUsuarioSchema(Schema):
     password = fields.String(
         required=True,
         validate=validate.Regexp(
-            r"^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?\":{}|<>]).{8,}$",
-            error="La contrasena debe tener al menos 8 caracteres, una mayuscula, un numero y un caracter especial.",
+            PASSWORD_COMPLEXITY_REGEX,
+            error=PASSWORD_COMPLEXITY_MESSAGE,
         ),
         load_only=True,
         error_messages={"required": "El password es obligatorio."},
@@ -100,3 +108,121 @@ class LoginUsuarioSchema(Schema):
             datos_normalizados["correo"] = datos_normalizados["correo"].lower()
 
         return datos_normalizados
+
+
+class ForgotPasswordSchema(Schema):
+    correo = fields.Email(
+        required=True,
+        error_messages={
+            "required": "El correo es obligatorio.",
+            "invalid": "El correo no tiene un formato valido.",
+        },
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+
+        datos = data.copy()
+        if isinstance(datos.get("correo"), str):
+            datos["correo"] = datos["correo"].strip().lower()
+        return datos
+
+
+class ResetPasswordSchema(Schema):
+    token = fields.String(
+        required=True,
+        validate=validate.Length(min=1, max=128),
+        error_messages={"required": "El token es obligatorio."},
+    )
+    password = fields.String(
+        required=True,
+        validate=validate.Regexp(
+            PASSWORD_COMPLEXITY_REGEX,
+            error=PASSWORD_COMPLEXITY_MESSAGE,
+        ),
+        load_only=True,
+        error_messages={"required": "El password es obligatorio."},
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+
+        datos = data.copy()
+        for campo in ("token", "password"):
+            if isinstance(datos.get(campo), str):
+                datos[campo] = datos[campo].strip()
+        return datos
+
+
+class HistorialTransaccionesSchema(Schema):
+    tipo = fields.String(
+        load_default="ambas",
+        validate=validate.OneOf(("ventas", "compras", "ambas")),
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("Los parametros son invalidos.")
+
+        datos = data.copy()
+        if isinstance(datos.get("tipo"), str):
+            datos["tipo"] = datos["tipo"].strip().lower()
+        return datos
+
+
+class AdminUsuariosFiltroSchema(Schema):
+    estado = fields.String(
+        required=False,
+        allow_none=True,
+        validate=validate.OneOf((
+            "ACTIVO",
+            "PENDIENTE_VERIFICACION",
+            "EN_REVISION",
+            "BLOQUEADO",
+            "RECHAZADO",
+        )),
+    )
+    rol = fields.String(
+        required=False,
+        allow_none=True,
+        validate=validate.OneOf(("USER_ESTANDAR", "TIENDA_VERIFICADA")),
+    )
+    q = fields.String(required=False, allow_none=True, validate=validate.Length(min=2, max=100))
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("Los parametros son invalidos.")
+
+        datos = data.copy()
+        for campo in ("estado", "rol", "q"):
+            if isinstance(datos.get(campo), str):
+                datos[campo] = datos[campo].strip()
+        if isinstance(datos.get("estado"), str):
+            datos["estado"] = datos["estado"].upper()
+        if isinstance(datos.get("rol"), str):
+            datos["rol"] = datos["rol"].upper()
+        return datos
+
+
+class MotivoAdminUsuarioSchema(Schema):
+    motivo = fields.String(
+        required=True,
+        validate=validate.Length(min=1, max=500),
+        error_messages={"required": "El motivo es obligatorio."},
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+
+        datos = data.copy()
+        if isinstance(datos.get("motivo"), str):
+            datos["motivo"] = datos["motivo"].strip()
+        return datos

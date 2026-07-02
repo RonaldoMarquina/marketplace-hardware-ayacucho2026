@@ -1,10 +1,12 @@
 from app import db
+from app.models.admin_log import AdminLog
 from app.models.anuncio import Anuncio
 from app.models.contacto_log import ContactoLog
 from app.models.media_anuncio import MediaAnuncio
 from app.models.moderacion_log import ModeracionLog
 from app.models.reporte import Reporte
 from app.models.tienda import Tienda
+from app.models.transaccion import Transaccion
 from app.models.usuario import Usuario
 
 
@@ -143,6 +145,13 @@ class AnuncioRepository:
         ).order_by(ContactoLog.created_at.desc(), ContactoLog.id.desc()).first()
 
     @staticmethod
+    def existe_contacto_anuncio(comprador_id, anuncio_id):
+        return db.session.query(ContactoLog.id).filter(
+            ContactoLog.comprador_id == comprador_id,
+            ContactoLog.anuncio_id == anuncio_id,
+        ).first() is not None
+
+    @staticmethod
     def buscar_ultimo_desbloqueo_anuncio(anuncio_id):
         return ModeracionLog.query.filter(
             ModeracionLog.anuncio_id == anuncio_id,
@@ -263,6 +272,14 @@ class AnuncioRepository:
     @staticmethod
     def agregar_moderacion_log(log_entry):
         db.session.add(log_entry)
+
+    @staticmethod
+    def agregar_admin_log(log_entry):
+        db.session.add(log_entry)
+
+    @staticmethod
+    def agregar_transaccion(transaccion):
+        db.session.add(transaccion)
 
     @staticmethod
     def eliminar_media(media):

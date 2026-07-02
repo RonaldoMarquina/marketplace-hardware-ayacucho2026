@@ -1,6 +1,6 @@
 ﻿-- ============================================================
 --  HardwareAyacucho â€” Esquema de Base de Datos MySQL
---  Respaldo consistente del backend implementado hasta HU-13
+--  Respaldo consistente del backend implementado hasta HU-21
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS hardware_ayacucho
@@ -30,11 +30,16 @@ CREATE TABLE usuarios (
     estado          ENUM(
                         'PENDIENTE_VERIFICACION',
                         'EN_REVISION',
+                        'RECHAZADO',
                         'ACTIVO',
                         'BLOQUEADO',
                         'BLOQUEADO_TEMP'
                     )               NOT NULL DEFAULT 'PENDIENTE_VERIFICACION',
     intentos_fallidos TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    calificacion_promedio_vendedor DECIMAL(3,1) NULL,
+    total_calificaciones_vendedor  INT UNSIGNED NOT NULL DEFAULT 0,
+    calificacion_promedio_comprador DECIMAL(3,1) NULL,
+    total_calificaciones_comprador INT UNSIGNED NOT NULL DEFAULT 0,
     bloqueado_hasta DATETIME       NULL,
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -78,16 +83,17 @@ CREATE TABLE tiendas (
 
 -- ------------------------------------------------------------
 -- 3. TOKENS DE VERIFICACIÃ“N
--- HU-03 (verificaciÃ³n de correo electrÃ³nico)
+-- HU-03 (verificaciÃ³n de correo electrÃ³nico), HU-21 (reset de password)
 -- ------------------------------------------------------------
 CREATE TABLE tokens_verificacion (
     id          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     usuario_id  INT UNSIGNED    NOT NULL,
     token       CHAR(64)        NOT NULL,                   -- secrets.token_hex(32) â†’ 64 hex chars
     tipo        ENUM(
-                    'EMAIL_VERIFICATION'
+                    'EMAIL_VERIFICATION',
+                    'PASSWORD_RESET'
                 )               NOT NULL DEFAULT 'EMAIL_VERIFICATION',
-    expira_en   DATETIME        NOT NULL,                   -- NOW() + 24h
+    expira_en   DATETIME        NOT NULL,                   -- verify=24h / reset=1h
     usado       TINYINT(1)      NOT NULL DEFAULT 0,
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -149,6 +155,8 @@ CREATE TABLE anuncios (
                             'BLOQUEADO'
                         )                   NOT NULL DEFAULT 'ACTIVO',
     reactivaciones_count INT UNSIGNED       NOT NULL DEFAULT 0,
+    comprador_id        INT UNSIGNED        NULL,
+    vendido_at          DATETIME            NULL,
     created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP
                                             ON UPDATE CURRENT_TIMESTAMP,
@@ -157,12 +165,16 @@ CREATE TABLE anuncios (
     INDEX idx_anuncios_estado       (estado),               -- HU-09: requerido
     INDEX idx_anuncios_created_at   (created_at),           -- HU-09: requerido
     INDEX idx_anuncios_usuario      (usuario_id),
+    INDEX idx_anuncios_comprador    (comprador_id),
     INDEX idx_anuncios_categoria    (categoria),
     INDEX idx_anuncios_subcategoria (subcategoria),         -- HU-05/HU-10: busqueda por producto visible
 
     CONSTRAINT fk_anuncios_usuario
         FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_anuncios_comprador
+        FOREIGN KEY (comprador_id) REFERENCES usuarios (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
 
     CONSTRAINT chk_precio_positivo CHECK (precio > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -170,10 +182,16 @@ CREATE TABLE anuncios (
 -- Ãndice funcional para filtrado por spec socket (HU-10, activar si BD > 1000 registros)
 -- ALTER TABLE anuncios ADD INDEX idx_spec_socket ((JSON_UNQUOTE(JSON_EXTRACT(especificaciones, '$.socket'))));
 
--- Migracion para bases ya existentes creadas antes de HU-07.
--- Ejecutar solo si la tabla anuncios ya existe y aun no tiene reactivaciones_count.
+-- Migraciones para bases ya existentes creadas antes de HU-07 / HU-14.
 -- ALTER TABLE anuncios
 -- ADD COLUMN reactivaciones_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER estado;
+-- ALTER TABLE anuncios
+-- ADD COLUMN comprador_id INT UNSIGNED NULL AFTER reactivaciones_count,
+-- ADD COLUMN vendido_at DATETIME NULL AFTER comprador_id,
+-- ADD INDEX idx_anuncios_comprador (comprador_id),
+-- ADD CONSTRAINT fk_anuncios_comprador
+--     FOREIGN KEY (comprador_id) REFERENCES usuarios (id)
+--     ON DELETE SET NULL ON UPDATE CASCADE;
 
 
 -- ------------------------------------------------------------
@@ -267,7 +285,116 @@ CREATE TABLE moderacion_log (
 
 
 -- ------------------------------------------------------------
--- 8. LOG DE CONTACTOS (WhatsApp)
+-- 8. AUDITORIA ADMIN UNIFICADA
+-- HU-13 (moderacion anuncios), HU-20 (gestion de usuarios)
+-- ------------------------------------------------------------
+CREATE TABLE admin_log (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    admin_id        INT UNSIGNED    NOT NULL,
+    usuario_id      INT UNSIGNED    NULL,
+    anuncio_id      INT UNSIGNED    NULL,
+    accion          ENUM(
+                        'USUARIO_ACTIVADO',
+                        'TIENDA_RECHAZADA',
+                        'USUARIO_BLOQUEADO',
+                        'USUARIO_DESBLOQUEADO',
+                        'BLOQUEADO',
+                        'DESBLOQUEADO'
+                    )               NOT NULL,
+    motivo          TEXT            NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX idx_admin_log_admin      (admin_id),
+    INDEX idx_admin_log_usuario    (usuario_id),
+    INDEX idx_admin_log_anuncio    (anuncio_id),
+    INDEX idx_admin_log_accion     (accion),
+    INDEX idx_admin_log_created_at (created_at),
+
+    CONSTRAINT fk_admin_log_admin
+        FOREIGN KEY (admin_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_admin_log_usuario
+        FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_admin_log_anuncio
+        FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ------------------------------------------------------------
+-- 9. TRANSACCIONES
+-- HU-14 (marcar vendido)
+-- ------------------------------------------------------------
+CREATE TABLE transacciones (
+    id                              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    anuncio_id                      INT UNSIGNED    NOT NULL,
+    vendedor_id                     INT UNSIGNED    NOT NULL,
+    comprador_id                    INT UNSIGNED    NOT NULL,
+    calificacion_vendedor_pending   TINYINT(1)      NOT NULL DEFAULT 1,
+    calificacion_comprador_pending  TINYINT(1)      NOT NULL DEFAULT 1,
+    created_at                      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX idx_transacciones_anuncio    (anuncio_id),
+    INDEX idx_transacciones_vendedor   (vendedor_id),
+    INDEX idx_transacciones_comprador  (comprador_id),
+    INDEX idx_transacciones_vendedor_created_at  (vendedor_id, created_at),
+    INDEX idx_transacciones_comprador_created_at (comprador_id, created_at),
+    INDEX idx_transacciones_created_at (created_at),
+
+    CONSTRAINT fk_transacciones_anuncio
+        FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_transacciones_vendedor
+        FOREIGN KEY (vendedor_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_transacciones_comprador
+        FOREIGN KEY (comprador_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ------------------------------------------------------------
+-- 10. CALIFICACIONES
+-- HU-15 (calificar vendedor), HU-16 (calificar comprador)
+-- ------------------------------------------------------------
+CREATE TABLE calificaciones (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    transaccion_id  INT UNSIGNED    NOT NULL,
+    calificador_id  INT UNSIGNED    NOT NULL,
+    calificado_id   INT UNSIGNED    NOT NULL,
+    tipo            ENUM(
+                        'COMPRADOR_A_VENDEDOR',
+                        'VENDEDOR_A_COMPRADOR'
+                    )               NOT NULL,
+    puntaje         TINYINT UNSIGNED NOT NULL,
+    comentario      TEXT            NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX idx_calificaciones_transaccion (transaccion_id),
+    INDEX idx_calificaciones_calificador (calificador_id),
+    INDEX idx_calificaciones_calificado  (calificado_id),
+    INDEX idx_calificaciones_tipo        (tipo),
+    INDEX idx_calificaciones_created_at  (created_at),
+
+    CONSTRAINT fk_calificaciones_transaccion
+        FOREIGN KEY (transaccion_id) REFERENCES transacciones (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_calificaciones_calificador
+        FOREIGN KEY (calificador_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_calificaciones_calificado
+        FOREIGN KEY (calificado_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT chk_calificaciones_puntaje CHECK (puntaje BETWEEN 1 AND 5)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ------------------------------------------------------------
+-- 11. LOG DE CONTACTOS (WhatsApp)
 -- HU-12 (contacto directo)
 -- ------------------------------------------------------------
 CREATE TABLE contactos_log (
@@ -301,12 +428,13 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- ============================================================
 -- usuarios            â†’ HU-01, HU-02, HU-04
 -- tiendas             â†’ HU-02, HU-11
--- tokens_verificacion â†’ HU-03
+-- tokens_verificacion â†’ HU-03, HU-21
 -- anuncios            â†’ HU-05, HU-07, HU-08, HU-09, HU-10, HU-11
 -- media_anuncio       â†’ HU-06, HU-11
 -- reportes            â†’ HU-13
 -- moderacion_log      â†’ HU-13
+-- admin_log           â†’ HU-13, HU-20
+-- transacciones       â†’ HU-14
+-- calificaciones      â†’ HU-15, HU-16
 -- contactos_log       â†’ HU-12
 -- ============================================================
-
-

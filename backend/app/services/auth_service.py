@@ -26,6 +26,9 @@ class AuthService:
     _login_block_minutes = 15
     _resend_limit = 3
     _resend_window_minutes = 15
+    _password_reset_limit = 3
+    _password_reset_window_minutes = 15
+    _password_reset_attempts = {}
 
     @staticmethod
     def registrar_usuario(data):
@@ -215,6 +218,15 @@ class AuthService:
                 "message": "Tu solicitud de tienda esta siendo revisada por un administrador.",
             }
 
+        if usuario.estado == "RECHAZADO":
+            AuthService._registrar_evento_login(usuario.id, ip_address, exitoso=False)
+            return {
+                "success": False,
+                "data": {"puede_reenviar": False},
+                "error": "ACCOUNT_REJECTED",
+                "message": "Tu solicitud de tienda fue rechazada. Debes registrarte nuevamente.",
+            }
+
         if usuario.estado == "BLOQUEADO":
             AuthService._registrar_evento_login(usuario.id, ip_address, exitoso=False)
             return {
@@ -393,6 +405,133 @@ class AuthService:
             }
 
     @staticmethod
+    def solicitar_reset_password(data, ip_address=None):
+        correo = data["correo"]
+        ahora = AuthService._utcnow()
+        rate_limit = AuthService._validar_rate_limit_reset(correo, ip_address, ahora)
+        if rate_limit:
+            return rate_limit
+
+        usuario = AuthRepository.buscar_usuario_por_correo(correo)
+        respuesta_generica = {
+            "success": True,
+            "data": {},
+            "error": None,
+            "message": "Si el correo esta registrado y la cuenta esta activa, recibiras un enlace en los proximos minutos.",
+        }
+
+        if not usuario or usuario.estado != "ACTIVO":
+            AuthService._registrar_solicitud_reset(correo, ip_address, ahora)
+            return respuesta_generica
+
+        try:
+            for token_anterior in AuthRepository.buscar_tokens_activos_usuario(
+                usuario.id,
+                tipo="PASSWORD_RESET",
+            ):
+                token_anterior.usado = True
+
+            token_reset = AuthService._crear_token_password_reset(usuario, ahora)
+            AuthRepository.agregar_token_verificacion(token_reset)
+            AuthRepository.commit()
+            AuthService._registrar_solicitud_reset(correo, ip_address, ahora)
+            AuthService._enviar_correo_reset_password_async(usuario, token_reset.token)
+            return respuesta_generica
+        except SQLAlchemyError:
+            AuthRepository.rollback()
+            return {
+                "success": False,
+                "data": {},
+                "error": "DATABASE_ERROR",
+                "message": "No se pudo procesar la solicitud de recuperacion.",
+            }
+
+    @staticmethod
+    def confirmar_reset_password(data, ip_address=None):
+        token_verificacion = AuthRepository.buscar_token_por_valor_y_tipo(
+            data["token"],
+            "PASSWORD_RESET",
+        )
+        if not token_verificacion:
+            return {
+                "success": False,
+                "data": {},
+                "error": "NOT_FOUND",
+                "message": "El token no existe.",
+            }
+
+        if token_verificacion.usado:
+            return {
+                "success": False,
+                "data": {},
+                "error": "TOKEN_USED",
+                "message": "El token ya fue usado.",
+            }
+
+        if token_verificacion.expira_en <= AuthService._utcnow():
+            return {
+                "success": False,
+                "data": {},
+                "error": "TOKEN_EXPIRED",
+                "message": "El token ha expirado.",
+            }
+
+        usuario = token_verificacion.usuario
+        if usuario.estado not in {"ACTIVO", "BLOQUEADO_TEMP"}:
+            return {
+                "success": False,
+                "data": {},
+                "error": "FORBIDDEN",
+                "message": "La cuenta no permite restablecer la contrasena en este momento.",
+            }
+
+        if AuthService._password_valido(usuario, data["password"]):
+            return {
+                "success": False,
+                "data": {},
+                "error": "CONFLICT",
+                "message": "La nueva contrasena debe ser diferente a la actual.",
+            }
+
+        try:
+            usuario.password_hash = bcrypt.hashpw(
+                data["password"].encode("utf-8"),
+                bcrypt.gensalt(rounds=10),
+            ).decode("utf-8")
+            usuario.intentos_fallidos = 0
+            usuario.bloqueado_hasta = None
+            if usuario.estado == "BLOQUEADO_TEMP":
+                usuario.estado = "ACTIVO"
+
+            token_verificacion.usado = True
+            for token_activo in AuthRepository.buscar_tokens_activos_usuario(
+                usuario.id,
+                tipo="PASSWORD_RESET",
+            ):
+                token_activo.usado = True
+
+            AuthRepository.commit()
+            current_app.logger.info(
+                "Password reset usuario_id=%s ip=%s accion=PASSWORD_RESET",
+                usuario.id,
+                ip_address or "unknown",
+            )
+            return {
+                "success": True,
+                "data": {"usuario_id": usuario.id},
+                "error": None,
+                "message": "Contrasena actualizada correctamente. Ya puedes iniciar sesion.",
+            }
+        except SQLAlchemyError:
+            AuthRepository.rollback()
+            return {
+                "success": False,
+                "data": {},
+                "error": "DATABASE_ERROR",
+                "message": "No se pudo actualizar la contrasena.",
+            }
+
+    @staticmethod
     def _password_valido(usuario, password):
         return bcrypt.checkpw(
             password.encode("utf-8"),
@@ -452,6 +591,60 @@ class AuthService:
         return None
 
     @staticmethod
+    def _validar_rate_limit_reset(correo, ip_address, ahora):
+        ventana = ahora - timedelta(minutes=AuthService._password_reset_window_minutes)
+        request_key = AuthService._password_reset_key(correo, ip_address)
+        intentos = [
+            ts for ts in AuthService._password_reset_attempts.get(request_key, [])
+            if ts >= ventana
+        ]
+        AuthService._password_reset_attempts[request_key] = intentos
+        if len(intentos) >= AuthService._password_reset_limit:
+            disponible_en = intentos[0] + timedelta(
+                minutes=AuthService._password_reset_window_minutes
+            )
+            return {
+                "success": False,
+                "data": {
+                    "disponible_en": disponible_en.isoformat(timespec="seconds"),
+                },
+                "error": "RATE_LIMIT_PASSWORD_RESET",
+                "message": "Demasiadas solicitudes. Espera 15 minutos antes de intentar de nuevo.",
+            }
+
+        usuario = AuthRepository.buscar_usuario_por_correo(correo)
+        if usuario and usuario.estado == "ACTIVO":
+            tokens_recientes = AuthRepository.listar_tokens_recientes_usuario(
+                usuario.id,
+                ventana,
+                "PASSWORD_RESET",
+            )
+            if len(tokens_recientes) >= AuthService._password_reset_limit:
+                disponible_en = tokens_recientes[0].created_at + timedelta(
+                    minutes=AuthService._password_reset_window_minutes
+                )
+                return {
+                    "success": False,
+                    "data": {
+                        "disponible_en": disponible_en.isoformat(timespec="seconds"),
+                    },
+                    "error": "RATE_LIMIT_PASSWORD_RESET",
+                    "message": "Demasiadas solicitudes. Espera 15 minutos antes de intentar de nuevo.",
+                }
+
+        return None
+
+    @staticmethod
+    def _registrar_solicitud_reset(correo, ip_address, timestamp):
+        request_key = AuthService._password_reset_key(correo, ip_address)
+        intentos = AuthService._password_reset_attempts.setdefault(request_key, [])
+        intentos.append(timestamp)
+
+    @staticmethod
+    def _password_reset_key(correo, ip_address):
+        return f"{(ip_address or 'unknown').strip()}::{correo.strip().lower()}"
+
+    @staticmethod
     def _registrar_evento_login(usuario_id, ip_address, exitoso):
         current_app.logger.info(
             "Login usuario_id=%s ip=%s exitoso=%s",
@@ -476,6 +669,18 @@ class AuthService:
         )
 
     @staticmethod
+    def _crear_token_password_reset(usuario, ahora=None):
+        timestamp = ahora or AuthService._utcnow()
+        return TokenVerificacion(
+            usuario=usuario,
+            token=secrets.token_hex(32),
+            tipo="PASSWORD_RESET",
+            expira_en=timestamp + timedelta(hours=1),
+            usado=False,
+            created_at=timestamp,
+        )
+
+    @staticmethod
     def _enviar_correo_verificacion_async(usuario, token):
         if current_app.config.get("TESTING"):
             return
@@ -489,6 +694,19 @@ class AuthService:
         thread.start()
 
     @staticmethod
+    def _enviar_correo_reset_password_async(usuario, token):
+        if current_app.config.get("TESTING"):
+            return
+
+        app = current_app._get_current_object()
+        thread = threading.Thread(
+            target=AuthService._enviar_correo_reset_password,
+            args=(app, usuario.correo, token),
+            daemon=True,
+        )
+        thread.start()
+
+    @staticmethod
     def _enviar_correo_verificacion(app, correo, token):
         try:
             frontend_url = app.config.get("FRONTEND_URL") or "http://localhost:5173"
@@ -496,6 +714,15 @@ class AuthService:
             app.logger.info("Enlace de verificacion para %s: %s", correo, enlace)
         except Exception:
             app.logger.exception("No se pudo enviar correo de verificacion")
+
+    @staticmethod
+    def _enviar_correo_reset_password(app, correo, token):
+        try:
+            frontend_url = app.config.get("FRONTEND_URL") or "http://localhost:5173"
+            enlace = f"{frontend_url}/reset-password?token={token}"
+            app.logger.info("Enlace de reset password para %s: %s", correo, enlace)
+        except Exception:
+            app.logger.exception("No se pudo enviar correo de reset password")
 
     @staticmethod
     def _validar_conflictos_tienda(data):

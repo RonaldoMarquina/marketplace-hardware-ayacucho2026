@@ -11,10 +11,12 @@ from sqlalchemy import String, cast, func, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.anuncio import SUBCATEGORIAS_POR_CATEGORIA, Anuncio
+from app.models.admin_log import AdminLog
 from app.models.contacto_log import ContactoLog
 from app.models.media_anuncio import MediaAnuncio
 from app.models.moderacion_log import ModeracionLog
 from app.models.reporte import Reporte
+from app.models.transaccion import Transaccion
 from app.repositories.anuncio_repository import AnuncioRepository
 from app.utils.media_validation import MediaValidationError, classify_media, validate_and_store_media
 
@@ -356,7 +358,11 @@ class AnuncioService:
             return _error_response("DATABASE_ERROR", "No se pudo actualizar el anuncio.")
 
     @staticmethod
-    def marcar_anuncio_vendido(anuncio_id, usuario_id):
+    def marcar_anuncio_vendido(anuncio_id, usuario_id, comprador_id):
+        vendedor = AnuncioRepository.buscar_usuario_por_id(usuario_id)
+        if not vendedor or vendedor.estado != "ACTIVO":
+            return _error_response("FORBIDDEN", "La cuenta debe estar activa para marcar anuncios como vendidos.")
+
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
             return _error_response("NOT_FOUND", "Anuncio no encontrado.")
@@ -369,13 +375,39 @@ class AnuncioService:
         if status_error:
             return status_error
 
+        comprador = AnuncioRepository.buscar_usuario_por_id(comprador_id)
+        if not comprador or comprador.estado != "ACTIVO":
+            return _error_response("VALIDATION_ERROR", "El comprador_id no corresponde a una cuenta activa.")
+
+        if comprador_id == usuario_id:
+            return _error_response("CONFLICT", "No puedes marcar tu propio usuario como comprador.")
+
+        if not AnuncioRepository.existe_contacto_anuncio(comprador_id, anuncio_id):
+            return _error_response(
+                "VALIDATION_ERROR",
+                "El comprador indicado no contacto este anuncio previamente.",
+            )
+
         estado_anterior = anuncio.estado
         try:
+            vendido_at = _utcnow_naive()
             anuncio.estado = "VENDIDO"
+            anuncio.comprador_id = comprador_id
+            anuncio.vendido_at = vendido_at
+            transaccion = Transaccion(
+                anuncio_id=anuncio_id,
+                vendedor_id=usuario_id,
+                comprador_id=comprador_id,
+                calificacion_vendedor_pending=True,
+                calificacion_comprador_pending=True,
+                created_at=vendido_at,
+            )
+            AnuncioRepository.agregar_transaccion(transaccion)
             AnuncioRepository.commit()
             current_app.logger.info(
-                "HU-08 cambio_estado usuario_id=%s anuncio_id=%s estado_anterior=%s estado_nuevo=%s",
+                "HU-14 marcar_vendido vendedor_id=%s comprador_id=%s anuncio_id=%s estado_anterior=%s estado_nuevo=%s",
                 usuario_id,
+                comprador_id,
                 anuncio_id,
                 estado_anterior,
                 anuncio.estado,
@@ -383,9 +415,17 @@ class AnuncioService:
             return {
                 "success": True,
                 "data": {
-                    "id": anuncio.id,
+                    "anuncio_id": anuncio.id,
+                    "titulo": anuncio.titulo,
                     "estado": anuncio.estado,
-                    "updated_at": anuncio.updated_at.isoformat() if anuncio.updated_at else None,
+                    "vendido_at": anuncio.vendido_at.isoformat() if anuncio.vendido_at else None,
+                    "transaccion": {
+                        "id": transaccion.id,
+                        "vendedor_id": transaccion.vendedor_id,
+                        "comprador_id": transaccion.comprador_id,
+                        "calificacion_vendedor_pendiente": transaccion.calificacion_vendedor_pending,
+                        "calificacion_comprador_pendiente": transaccion.calificacion_comprador_pending,
+                    },
                 },
                 "error": None,
                 "message": "Tu anuncio ha sido marcado como vendido exitosamente.",
@@ -606,6 +646,15 @@ class AnuncioService:
                 created_at=_utcnow_naive(),
             )
             AnuncioRepository.agregar_moderacion_log(log_entry)
+            admin_log = AdminLog(
+                admin_id=admin_id,
+                usuario_id=None,
+                anuncio_id=anuncio_id,
+                accion="BLOQUEADO",
+                motivo=motivo_admin,
+                created_at=_utcnow_naive(),
+            )
+            AnuncioRepository.agregar_admin_log(admin_log)
             AnuncioRepository.commit()
             return {
                 "success": True,
@@ -641,6 +690,15 @@ class AnuncioService:
                 created_at=_utcnow_naive(),
             )
             AnuncioRepository.agregar_moderacion_log(log_entry)
+            admin_log = AdminLog(
+                admin_id=admin_id,
+                usuario_id=None,
+                anuncio_id=anuncio_id,
+                accion="DESBLOQUEADO",
+                motivo=motivo_admin,
+                created_at=_utcnow_naive(),
+            )
+            AnuncioRepository.agregar_admin_log(admin_log)
             AnuncioRepository.commit()
             return {
                 "success": True,
@@ -1032,7 +1090,7 @@ def _validar_estado_edicion(anuncio):
 
 def _validar_estado_para_vendido(anuncio):
     if anuncio.estado == "BLOQUEADO":
-        return _error_response("CONFLICT", "El anuncio bloqueado no puede marcarse como vendido.")
+        return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio ya se encuentra vendido.")
     if anuncio.estado == "INACTIVO":

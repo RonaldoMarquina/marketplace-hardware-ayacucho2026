@@ -6,7 +6,9 @@ from flask_jwt_extended import create_access_token
 
 from app import db
 from app.models.anuncio import Anuncio
+from app.models.contacto_log import ContactoLog
 from app.models.media_anuncio import MediaAnuncio
+from app.models.transaccion import Transaccion
 from app.models.usuario import Usuario
 
 
@@ -91,6 +93,17 @@ def crear_media(anuncio, upload_folder, tipo_media="imagen", nombre="archivo.png
     db.session.add(media)
     db.session.commit()
     return media, absolute_path
+
+
+def crear_contacto(comprador, vendedor, anuncio):
+    contacto = ContactoLog(
+        comprador_id=comprador.id,
+        vendedor_id=vendedor.id,
+        anuncio_id=anuncio.id,
+    )
+    db.session.add(contacto)
+    db.session.commit()
+    return contacto
 
 
 def test_editar_anuncio_aplica_merge_patch_e_ignora_campos_inmutables(client, app):
@@ -178,13 +191,17 @@ def test_editar_anuncio_inactivo_permite_cambios(client, app):
 
 def test_marcar_anuncio_vendido_exitoso(client, app):
     with app.app_context():
-        usuario = crear_usuario()
-        anuncio = crear_anuncio(usuario)
-        token = token_para(usuario)
+        vendedor = crear_usuario("vendedor_vendido@gmail.com")
+        comprador = crear_usuario("comprador_vendido@gmail.com")
+        anuncio = crear_anuncio(vendedor)
+        crear_contacto(comprador, vendedor, anuncio)
+        token = token_para(vendedor)
         anuncio_id = anuncio.id
+        comprador_id = comprador.id
 
     response = client.patch(
         f"/api/v1/anuncios/{anuncio_id}/vendido",
+        json={"comprador_id": comprador_id},
         headers=headers(token),
     )
 
@@ -192,23 +209,114 @@ def test_marcar_anuncio_vendido_exitoso(client, app):
     body = response.get_json()
     assert body["success"] is True
     assert body["data"]["estado"] == "VENDIDO"
+    assert body["data"]["anuncio_id"] == anuncio_id
+    assert body["data"]["transaccion"]["comprador_id"] == comprador_id
+    assert body["data"]["transaccion"]["calificacion_vendedor_pendiente"] is True
+    assert body["data"]["transaccion"]["calificacion_comprador_pendiente"] is True
     assert "vendido" in body["message"].lower()
+
+    with app.app_context():
+        anuncio_db = db.session.get(Anuncio, anuncio_id)
+        transaccion = Transaccion.query.filter_by(anuncio_id=anuncio_id).first()
+        assert anuncio_db.estado == "VENDIDO"
+        assert anuncio_db.comprador_id == comprador_id
+        assert anuncio_db.vendido_at is not None
+        assert transaccion is not None
+        assert transaccion.comprador_id == comprador_id
 
 
 def test_marcar_anuncio_vendido_desde_inactivo_retorna_409(client, app):
     with app.app_context():
-        usuario = crear_usuario()
-        anuncio = crear_anuncio(usuario, estado="INACTIVO")
-        token = token_para(usuario)
+        vendedor = crear_usuario("vendedor_inactivo@gmail.com")
+        comprador = crear_usuario("comprador_inactivo@gmail.com")
+        anuncio = crear_anuncio(vendedor, estado="INACTIVO")
+        crear_contacto(comprador, vendedor, anuncio)
+        token = token_para(vendedor)
         anuncio_id = anuncio.id
+        comprador_id = comprador.id
 
     response = client.patch(
         f"/api/v1/anuncios/{anuncio_id}/vendido",
+        json={"comprador_id": comprador_id},
         headers=headers(token),
     )
 
     assert response.status_code == 409
     assert response.get_json()["error"] == "CONFLICT"
+
+
+def test_marcar_anuncio_vendido_requiere_comprador_id(client, app):
+    with app.app_context():
+        vendedor = crear_usuario("vendedor_missing@gmail.com")
+        anuncio = crear_anuncio(vendedor)
+        token = token_para(vendedor)
+        anuncio_id = anuncio.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/vendido",
+        json={},
+        headers=headers(token),
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "VALIDATION_ERROR"
+
+
+def test_marcar_anuncio_vendido_autocompra_retorna_409(client, app):
+    with app.app_context():
+        vendedor = crear_usuario("vendedor_auto@gmail.com")
+        anuncio = crear_anuncio(vendedor)
+        token = token_para(vendedor)
+        anuncio_id = anuncio.id
+        vendedor_id = vendedor.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/vendido",
+        json={"comprador_id": vendedor_id},
+        headers=headers(token),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CONFLICT"
+
+
+def test_marcar_anuncio_vendido_comprador_sin_contacto_retorna_422(client, app):
+    with app.app_context():
+        vendedor = crear_usuario("vendedor_sin_contacto@gmail.com")
+        comprador = crear_usuario("comprador_sin_contacto@gmail.com")
+        anuncio = crear_anuncio(vendedor)
+        token = token_para(vendedor)
+        anuncio_id = anuncio.id
+        comprador_id = comprador.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/vendido",
+        json={"comprador_id": comprador_id},
+        headers=headers(token),
+    )
+
+    assert response.status_code == 422
+    assert response.get_json()["error"] == "VALIDATION_ERROR"
+
+
+def test_marcar_anuncio_vendido_bloqueado_retorna_403(client, app):
+    with app.app_context():
+        vendedor = crear_usuario("vendedor_bloqueado_vendido@gmail.com")
+        comprador = crear_usuario("comprador_bloqueado_vendido@gmail.com")
+        anuncio = crear_anuncio(vendedor, estado="BLOQUEADO")
+        crear_contacto(comprador, vendedor, anuncio)
+        token = token_para(vendedor)
+        anuncio_id = anuncio.id
+        comprador_id = comprador.id
+
+    response = client.patch(
+        f"/api/v1/anuncios/{anuncio_id}/vendido",
+        json={"comprador_id": comprador_id},
+        headers=headers(token),
+    )
+
+    assert response.status_code == 403
+    assert response.get_json()["error"] == "FORBIDDEN"
 
 
 def test_reactivar_anuncio_bloqueado_retorna_409(client, app):

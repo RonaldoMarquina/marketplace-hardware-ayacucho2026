@@ -1,8 +1,13 @@
-﻿from flask import current_app, jsonify, request
+from flask import current_app, jsonify, request
 from marshmallow import RAISE, Schema, ValidationError, fields
 
 from app.schemas.tienda_schema import RegistroTiendaSchema
-from app.schemas.usuario_schema import LoginUsuarioSchema, RegistroUsuarioSchema
+from app.schemas.usuario_schema import (
+    ForgotPasswordSchema,
+    LoginUsuarioSchema,
+    RegistroUsuarioSchema,
+    ResetPasswordSchema,
+)
 from app.services.auth_service import AuthService
 
 
@@ -128,6 +133,7 @@ def login_controller():
         "INVALID_CREDENTIALS": 401,
         "ACCOUNT_PENDING": 403,
         "ACCOUNT_IN_REVIEW": 403,
+        "ACCOUNT_REJECTED": 403,
         "ACCOUNT_BLOCKED": 403,
         "RATE_LIMIT_LOGIN": 429,
     }
@@ -193,6 +199,82 @@ def reenviar_verificacion_controller():
         "NOT_FOUND": 404,
         "CONFLICT": 409,
         "RATE_LIMIT_REENVIO": 429,
+        "DATABASE_ERROR": 500,
+    }
+    return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)
+
+
+def forgot_password_controller():
+    request_data = request.get_json(silent=True) or {}
+    schema = ForgotPasswordSchema()
+
+    try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
+    except ValidationError as error:
+        status_code = _status_code_for_register_validation(error.messages)
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), status_code
+
+    try:
+        respuesta = AuthService.solicitar_reset_password(
+            datos_validados,
+            request.remote_addr,
+        )
+    except Exception:
+        current_app.logger.exception("Error inesperado al solicitar reset de password")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    status_by_error = {
+        "RATE_LIMIT_PASSWORD_RESET": 429,
+        "DATABASE_ERROR": 500,
+    }
+    return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)
+
+
+def reset_password_controller():
+    request_data = request.get_json(silent=True) or {}
+    schema = ResetPasswordSchema()
+
+    try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
+    except ValidationError as error:
+        status_code = _status_code_for_register_validation(error.messages)
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), status_code
+
+    try:
+        respuesta = AuthService.confirmar_reset_password(
+            datos_validados,
+            request.remote_addr,
+        )
+    except Exception:
+        current_app.logger.exception("Error inesperado al confirmar reset de password")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    status_by_error = {
+        "NOT_FOUND": 404,
+        "TOKEN_USED": 409,
+        "TOKEN_EXPIRED": 410,
+        "FORBIDDEN": 403,
+        "CONFLICT": 409,
         "DATABASE_ERROR": 500,
     }
     return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)

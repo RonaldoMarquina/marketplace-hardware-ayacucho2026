@@ -264,6 +264,30 @@ class MotivoAdminSchema(Schema):
         return datos
 
 
+class MarcarVendidoSchema(Schema):
+    comprador_id = fields.Integer(
+        required=True,
+        strict=True,
+        validate=validate.Range(min=1),
+        error_messages={"required": "El comprador_id es obligatorio."},
+    )
+
+
+class CalificarUsuarioSchema(Schema):
+    puntaje = fields.Integer(
+        required=True,
+        strict=True,
+        validate=validate.Range(min=1, max=5),
+        error_messages={"required": "El puntaje es obligatorio."},
+    )
+    comentario = fields.String(
+        required=False,
+        allow_none=True,
+        validate=validate.Length(max=500),
+        load_default=None,
+    )
+
+
 def _normalizar_taxonomia(value):
     return value.upper().replace(" ", "_").replace("-", "_")
 

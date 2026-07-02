@@ -3,7 +3,9 @@ from flask_jwt_extended import get_jwt_identity
 from marshmallow import RAISE, ValidationError
 
 from app.schemas.anuncio_schema import MotivoAdminSchema
+from app.schemas.usuario_schema import AdminUsuariosFiltroSchema, MotivoAdminUsuarioSchema
 from app.services.anuncio_service import AnuncioService
+from app.services.admin_user_service import AdminUserService
 
 
 def listar_anuncios_reportados_controller():
@@ -90,6 +92,124 @@ def historial_moderacion_controller():
     return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
 
 
+def listar_usuarios_admin_controller():
+    schema = AdminUsuariosFiltroSchema()
+    try:
+        page = _parse_positive_int(request.args.get("page", "1"), "page")
+        limit = _parse_positive_int(request.args.get("limit", "20"), "limit")
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+
+    if limit > 50:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": "El parametro limit no puede superar 50.",
+        }), 400
+
+    try:
+        filtros = schema.load({
+            "estado": request.args.get("estado"),
+            "rol": request.args.get("rol"),
+            "q": request.args.get("q"),
+        })
+        respuesta = AdminUserService.listar_usuarios(page, limit, **filtros)
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Parametros invalidos.",
+        }), 422
+    except Exception:
+        current_app.logger.exception("Error inesperado al listar usuarios admin")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
+
+
+def detalle_usuario_admin_controller(usuario_id):
+    try:
+        usuario_id_int = _parse_positive_int(usuario_id, "usuario_id")
+        respuesta = AdminUserService.obtener_detalle_usuario(usuario_id_int)
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+    except Exception:
+        current_app.logger.exception("Error inesperado al obtener detalle de usuario admin")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
+
+
+def activar_usuario_admin_controller(usuario_id):
+    try:
+        usuario_id_int = _parse_positive_int(usuario_id, "usuario_id")
+        admin_id = int(get_jwt_identity())
+        respuesta = AdminUserService.activar_usuario(usuario_id_int, admin_id)
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+    except Exception:
+        current_app.logger.exception("Error inesperado al activar usuario")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
+
+
+def rechazar_usuario_admin_controller(usuario_id):
+    return _ejecutar_accion_admin_usuario(
+        usuario_id,
+        accion_service=AdminUserService.rechazar_tienda,
+        log_message="Error inesperado al rechazar tienda",
+    )
+
+
+def bloquear_usuario_admin_controller(usuario_id):
+    return _ejecutar_accion_admin_usuario(
+        usuario_id,
+        accion_service=AdminUserService.bloquear_usuario,
+        log_message="Error inesperado al bloquear usuario",
+    )
+
+
+def desbloquear_usuario_admin_controller(usuario_id):
+    return _ejecutar_accion_admin_usuario(
+        usuario_id,
+        accion_service=AdminUserService.desbloquear_usuario,
+        log_message="Error inesperado al desbloquear usuario",
+    )
+
+
 def _ejecutar_accion_moderacion(anuncio_id, accion_service, log_message):
     request_data = request.get_json(silent=True) or {}
     schema = MotivoAdminSchema()
@@ -99,6 +219,41 @@ def _ejecutar_accion_moderacion(anuncio_id, accion_service, log_message):
         anuncio_id_int = _parse_positive_int(anuncio_id, "anuncio_id")
         admin_id = int(get_jwt_identity())
         respuesta = accion_service(anuncio_id_int, admin_id, datos_validados["motivo_admin"])
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), 400
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+    except Exception:
+        current_app.logger.exception(log_message)
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
+
+
+def _ejecutar_accion_admin_usuario(usuario_id, accion_service, log_message):
+    request_data = request.get_json(silent=True) or {}
+    schema = MotivoAdminUsuarioSchema()
+
+    try:
+        datos_validados = schema.load(request_data, unknown=RAISE)
+        usuario_id_int = _parse_positive_int(usuario_id, "usuario_id")
+        admin_id = int(get_jwt_identity())
+        respuesta = accion_service(usuario_id_int, admin_id, datos_validados["motivo"])
     except ValidationError as error:
         return jsonify({
             "success": False,

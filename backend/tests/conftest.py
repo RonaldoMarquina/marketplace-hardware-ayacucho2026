@@ -12,6 +12,7 @@ from app.services.auth_service import AuthService
 @pytest.fixture(scope="function")
 def app(tmp_path):
     AuthService._login_attempts.clear()
+    AuthService._password_reset_attempts.clear()
     flask_app = create_app(
         {
             "TESTING": True,
@@ -28,6 +29,7 @@ def app(tmp_path):
         db.session.remove()
         db.drop_all()
         AuthService._login_attempts.clear()
+        AuthService._password_reset_attempts.clear()
 
 
 @pytest.fixture(scope="function")

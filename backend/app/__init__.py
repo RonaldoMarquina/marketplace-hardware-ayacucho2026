@@ -48,10 +48,14 @@ def create_app(test_config=None):
     from app.routes.admin import admin_bp
     from app.routes.anuncios import anuncios_bp
     from app.routes.auth import auth_bp
+    from app.routes.transacciones import transacciones_bp
+    from app.routes.usuarios import usuarios_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(anuncios_bp, url_prefix="/api/v1/anuncios")
     app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
+    app.register_blueprint(transacciones_bp, url_prefix="/api/v1/transacciones")
+    app.register_blueprint(usuarios_bp, url_prefix="/api/v1/usuarios")
 
     return app
 
