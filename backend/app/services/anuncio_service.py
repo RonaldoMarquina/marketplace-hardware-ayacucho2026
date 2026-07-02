@@ -496,13 +496,15 @@ class AnuncioService:
                     f"El usuario estandar alcanzo el limite de {MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR} anuncios activos.",
                 )
 
-        if anuncio.reactivaciones_count >= MAX_REACTIVACIONES:
+        reactivaciones_count = _normalizar_reactivaciones_count(anuncio)
+
+        if reactivaciones_count >= MAX_REACTIVACIONES:
             return _error_response("FORBIDDEN", "El anuncio alcanzo el limite de 3 reactivaciones.")
 
         estado_anterior = anuncio.estado
         try:
             anuncio.estado = "ACTIVO"
-            anuncio.reactivaciones_count += 1
+            anuncio.reactivaciones_count = reactivaciones_count + 1
             AnuncioRepository.commit()
             current_app.logger.info(
                 "HU-08 cambio_estado usuario_id=%s anuncio_id=%s estado_anterior=%s estado_nuevo=%s reactivaciones_count=%s",
@@ -518,7 +520,7 @@ class AnuncioService:
                     "id": anuncio.id,
                     "estado": anuncio.estado,
                     "reactivaciones_count": anuncio.reactivaciones_count,
-                    "reactivaciones_restantes": MAX_REACTIVACIONES - anuncio.reactivaciones_count,
+                    "reactivaciones_restantes": max(0, MAX_REACTIVACIONES - reactivaciones_count - 1),
                     "updated_at": anuncio.updated_at.isoformat() if anuncio.updated_at else None,
                 },
                 "error": None,
@@ -1126,6 +1128,10 @@ def _validar_estado_operacion_media(anuncio):
     return None
 
 
+def _normalizar_reactivaciones_count(anuncio):
+    return int(anuncio.reactivaciones_count or 0)
+
+
 def _validar_estado_comprador_contacto(usuario):
     if usuario.estado == "PENDIENTE_VERIFICACION":
         return _error_response("FORBIDDEN", "La cuenta debe estar activa para contactar anuncios.")
@@ -1203,7 +1209,7 @@ def _serialize_detail_listing(anuncio, vendedor, tienda, media, viewer_user_id, 
     if es_propietario:
         response["estado_propietario"] = {
             "estado": anuncio.estado,
-            "reactivaciones_restantes": max(0, MAX_REACTIVACIONES - anuncio.reactivaciones_count),
+            "reactivaciones_restantes": max(0, MAX_REACTIVACIONES - _normalizar_reactivaciones_count(anuncio)),
         }
 
     return response

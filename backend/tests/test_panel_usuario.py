@@ -141,6 +141,30 @@ def test_panel_usuario_estandar_retorna_resumen_completo(client, app):
         },
         "inactivos": {
             "total": 2,
+            "items": [
+                {
+                    "id": body["data"]["anuncios"]["inactivos"]["items"][0]["id"],
+                    "titulo": "Inactivo 2",
+                    "precio": 100.0,
+                    "categoria": "COMPONENTES",
+                    "subcategoria": "PROCESADOR",
+                    "condicion": "USADO",
+                    "imagen_principal": None,
+                    "created_at": body["data"]["anuncios"]["inactivos"]["items"][0]["created_at"],
+                    "updated_at": body["data"]["anuncios"]["inactivos"]["items"][0]["updated_at"],
+                },
+                {
+                    "id": body["data"]["anuncios"]["inactivos"]["items"][1]["id"],
+                    "titulo": "Inactivo 1",
+                    "precio": 100.0,
+                    "categoria": "COMPONENTES",
+                    "subcategoria": "PROCESADOR",
+                    "condicion": "USADO",
+                    "imagen_principal": None,
+                    "created_at": body["data"]["anuncios"]["inactivos"]["items"][1]["created_at"],
+                    "updated_at": body["data"]["anuncios"]["inactivos"]["items"][1]["updated_at"],
+                },
+            ],
         },
         "vendidos": {
             "total": 18,
@@ -204,6 +228,7 @@ def test_panel_tienda_verificada_retorna_limites_null_y_tienda_privada(client, a
         "disponibles": None,
     }
     assert body["data"]["anuncios"]["inactivos"]["total"] == 5
+    assert len(body["data"]["anuncios"]["inactivos"]["items"]) == 5
     assert body["data"]["anuncios"]["vendidos"]["total"] == 84
     assert body["data"]["reputacion_vendedor"]["total_ventas"] == 84
     assert body["data"]["reputacion_comprador"]["total_compras"] == 3

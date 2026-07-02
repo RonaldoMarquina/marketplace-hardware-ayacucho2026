@@ -1,5 +1,5 @@
 ﻿-- ============================================================
---  HardwareAyacucho â€” Esquema de Base de Datos MySQL
+--  HardwareAyacucho - Esquema de Base de Datos MySQL
 --  Respaldo consistente del backend implementado hasta HU-21
 -- ============================================================
 
@@ -10,18 +10,19 @@ CREATE DATABASE IF NOT EXISTS hardware_ayacucho
 USE hardware_ayacucho;
 
 SET FOREIGN_KEY_CHECKS = 0;
+
 SET SQL_MODE = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO';
 
 -- ------------------------------------------------------------
 -- 1. USUARIOS
--- HU-01 (registro estÃ¡ndar), HU-02 (tienda), HU-04 (login)
+-- HU-01 (registro estandar), HU-02 (tienda), HU-04 (login)
 -- ------------------------------------------------------------
 CREATE TABLE usuarios (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     nombre          VARCHAR(100)    NOT NULL,
     correo          VARCHAR(150)    NOT NULL,
     password_hash   VARCHAR(255)    NOT NULL,               -- bcrypt, salt=10
-    telefono        CHAR(9)         NULL,                   -- 9 dÃ­gitos, puede ser NULL
+    telefono        CHAR(9)         NULL,                   -- 9 digitos, puede ser NULL
     rol             ENUM(
                         'USER_ESTANDAR',
                         'TIENDA_VERIFICADA',
@@ -47,7 +48,9 @@ CREATE TABLE usuarios (
 
     PRIMARY KEY (id),
     UNIQUE  KEY uq_usuarios_correo (correo),
-    UNIQUE  KEY uq_usuarios_telefono (telefono)
+    UNIQUE  KEY uq_usuarios_telefono (telefono),
+    INDEX   idx_usuarios_rol (rol),
+    INDEX   idx_usuarios_estado (estado)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
@@ -82,13 +85,13 @@ CREATE TABLE tiendas (
 
 
 -- ------------------------------------------------------------
--- 3. TOKENS DE VERIFICACIÃ“N
--- HU-03 (verificaciÃ³n de correo electrÃ³nico), HU-21 (reset de password)
+-- 3. TOKENS DE VERIFICACION
+-- HU-03 (verificacion de correo electronico), HU-21 (reset de password)
 -- ------------------------------------------------------------
 CREATE TABLE tokens_verificacion (
     id          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     usuario_id  INT UNSIGNED    NOT NULL,
-    token       CHAR(64)        NOT NULL,                   -- secrets.token_hex(32) â†’ 64 hex chars
+    token       CHAR(64)        NOT NULL,                   -- secrets.token_hex(32) -> 64 hex chars
     tipo        ENUM(
                     'EMAIL_VERIFICATION',
                     'PASSWORD_RESET'
@@ -99,8 +102,10 @@ CREATE TABLE tokens_verificacion (
 
     PRIMARY KEY (id),
     UNIQUE KEY  uq_tokens_token       (token),
-    INDEX       idx_tokens_token      (token),              -- HU-03: Ã­ndice requerido
+    INDEX       idx_tokens_token      (token),              -- HU-03: indice requerido
     INDEX       idx_tokens_usuario    (usuario_id),
+    INDEX       idx_tokens_tipo       (tipo),
+    INDEX       idx_tokens_usuario_tipo (usuario_id, tipo, usado),
     CONSTRAINT fk_tokens_usuario
         FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         ON DELETE CASCADE ON UPDATE CASCADE
@@ -132,7 +137,7 @@ CREATE TABLE anuncios (
                             'PORTATILES'
                         )                   NOT NULL,
 
-    -- Subcategoria: clasificacion visible/buscable/filtrable por el usuario.
+    -- Subcategoria: clasificacion visible, buscable y filtrable por el usuario.
     -- Ejemplos: PROCESADOR, GPU, TECLADO, ROUTER, LAPTOP.
     subcategoria        VARCHAR(80)         NOT NULL,
 
@@ -145,7 +150,7 @@ CREATE TABLE anuncios (
     precio              DECIMAL(10, 2)      NOT NULL,       -- > 0, max 2 decimales
 
     -- Especificaciones: solo atributos tecnicos puros, variables por subcategoria.
-    -- No guardar aqui categoria/subcategoria/tipo_componente.
+    -- No guardar aqui categoria, subcategoria ni tipo_componente.
     especificaciones    JSON                NULL,
 
     estado              ENUM(
@@ -179,7 +184,7 @@ CREATE TABLE anuncios (
     CONSTRAINT chk_precio_positivo CHECK (precio > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Ãndice funcional para filtrado por spec socket (HU-10, activar si BD > 1000 registros)
+-- Indice funcional para filtrado por spec socket (HU-10, activar si BD > 1000 registros)
 -- ALTER TABLE anuncios ADD INDEX idx_spec_socket ((JSON_UNQUOTE(JSON_EXTRACT(especificaciones, '$.socket'))));
 
 -- Migraciones para bases ya existentes creadas antes de HU-07 / HU-14.
@@ -426,15 +431,15 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- ============================================================
 --  RESUMEN DE TABLAS
 -- ============================================================
--- usuarios            â†’ HU-01, HU-02, HU-04
--- tiendas             â†’ HU-02, HU-11
--- tokens_verificacion â†’ HU-03, HU-21
--- anuncios            â†’ HU-05, HU-07, HU-08, HU-09, HU-10, HU-11
--- media_anuncio       â†’ HU-06, HU-11
--- reportes            â†’ HU-13
--- moderacion_log      â†’ HU-13
--- admin_log           â†’ HU-13, HU-20
--- transacciones       â†’ HU-14
--- calificaciones      â†’ HU-15, HU-16
--- contactos_log       â†’ HU-12
+-- usuarios            -> HU-01, HU-02, HU-04
+-- tiendas             -> HU-02, HU-11
+-- tokens_verificacion -> HU-03, HU-21
+-- anuncios            -> HU-05, HU-07, HU-08, HU-09, HU-10, HU-11
+-- media_anuncio       -> HU-06, HU-11
+-- reportes            -> HU-13
+-- moderacion_log      -> HU-13
+-- admin_log           -> HU-13, HU-20
+-- transacciones       -> HU-14
+-- calificaciones      -> HU-15, HU-16
+-- contactos_log       -> HU-12
 -- ============================================================

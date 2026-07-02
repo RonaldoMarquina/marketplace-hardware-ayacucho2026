@@ -79,6 +79,11 @@ class UsuarioService:
         total_activos = conteos.get("ACTIVO", 0)
         total_inactivos = conteos.get("INACTIVO", 0)
         total_vendidos = conteos.get("VENDIDO", 0)
+        anuncios_inactivos = UsuarioRepository.listar_anuncios_por_estado_publicos(
+            usuario_id,
+            "INACTIVO",
+            limit=10,
+        )
         total_ventas = UsuarioRepository.contar_ventas(usuario_id)
         total_compras = UsuarioRepository.contar_compras(usuario_id)
         calificaciones_pendientes = UsuarioRepository.contar_calificaciones_pendientes(usuario_id)
@@ -114,6 +119,20 @@ class UsuarioService:
                     },
                     "inactivos": {
                         "total": total_inactivos,
+                        "items": [
+                            {
+                                "id": item.id,
+                                "titulo": item.titulo,
+                                "precio": float(item.precio) if hasattr(item.precio, "as_tuple") else item.precio,
+                                "categoria": item.categoria,
+                                "subcategoria": item.subcategoria,
+                                "condicion": item.condicion,
+                                "imagen_principal": item.imagen_principal,
+                                "created_at": item.created_at.isoformat() if item.created_at else None,
+                                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+                            }
+                            for item in anuncios_inactivos
+                        ],
                     },
                     "vendidos": {
                         "total": total_vendidos,

@@ -118,6 +118,24 @@ class TransaccionRepository:
         ).count()
 
     @staticmethod
+    def contar_calificaciones_pendientes_ventas_usuario(usuario_id):
+        return Transaccion.query.filter(
+            db.and_(
+                Transaccion.vendedor_id == usuario_id,
+                Transaccion.calificacion_comprador_pending.is_(True),
+            )
+        ).count()
+
+    @staticmethod
+    def contar_calificaciones_pendientes_compras_usuario(usuario_id):
+        return Transaccion.query.filter(
+            db.and_(
+                Transaccion.comprador_id == usuario_id,
+                Transaccion.calificacion_vendedor_pending.is_(True),
+            )
+        ).count()
+
+    @staticmethod
     def commit():
         db.session.commit()
 

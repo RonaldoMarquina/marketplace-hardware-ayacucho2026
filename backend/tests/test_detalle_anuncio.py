@@ -168,6 +168,23 @@ def test_detalle_propietario_puede_ver_inactivo_con_estado_propietario(client, a
     assert body["data"]["vendedor"]["telefono"] == vendedor_telefono
 
 
+def test_detalle_propietario_con_reactivaciones_nulas_no_falla(client, app):
+    with app.app_context():
+        vendedor = crear_usuario()
+        anuncio = crear_anuncio(vendedor, estado="INACTIVO", reactivaciones_count=None)
+        token = token_para(vendedor)
+        anuncio_id = anuncio.id
+
+    response = client.get(f"{DETAIL_URL}/{anuncio_id}", headers=headers(token))
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["data"]["estado_propietario"] == {
+        "estado": "INACTIVO",
+        "reactivaciones_restantes": 3,
+    }
+
+
 def test_detalle_inactivo_para_tercero_retorna_404(client, app):
     with app.app_context():
         vendedor = crear_usuario()

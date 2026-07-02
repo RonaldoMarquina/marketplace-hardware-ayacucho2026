@@ -63,6 +63,10 @@ class UsuarioRepository:
 
     @staticmethod
     def listar_anuncios_activos_publicos(usuario_id, limit=10):
+        return UsuarioRepository.listar_anuncios_por_estado_publicos(usuario_id, "ACTIVO", limit=limit)
+
+    @staticmethod
+    def listar_anuncios_por_estado_publicos(usuario_id, estado, limit=10):
         return db.session.query(
             Anuncio.id,
             Anuncio.titulo,
@@ -82,7 +86,7 @@ class UsuarioRepository:
             ),
         ).filter(
             Anuncio.usuario_id == usuario_id,
-            Anuncio.estado == "ACTIVO",
+            Anuncio.estado == estado,
         ).order_by(
             Anuncio.created_at.desc(),
             Anuncio.id.desc(),

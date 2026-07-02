@@ -153,6 +153,8 @@ def test_historial_transacciones_ambas_mezcla_ventas_y_compras_ordenadas(client,
         "total_ventas": 1,
         "total_compras": 1,
         "calificaciones_pendientes": 1,
+        "calificaciones_pendientes_ventas": 1,
+        "calificaciones_pendientes_compras": 0,
     }
 
 
@@ -190,6 +192,8 @@ def test_historial_transacciones_filtra_ventas_y_resumen_permanece_global(client
         "total_ventas": 1,
         "total_compras": 1,
         "calificaciones_pendientes": 1,
+        "calificaciones_pendientes_ventas": 0,
+        "calificaciones_pendientes_compras": 1,
     }
 
 

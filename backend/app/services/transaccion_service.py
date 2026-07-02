@@ -164,6 +164,12 @@ class TransaccionService:
         total_ventas = TransaccionRepository.contar_ventas_usuario(usuario_id)
         total_compras = TransaccionRepository.contar_compras_usuario(usuario_id)
         calificaciones_pendientes = TransaccionRepository.contar_calificaciones_pendientes_usuario(usuario_id)
+        calificaciones_pendientes_ventas = TransaccionRepository.contar_calificaciones_pendientes_ventas_usuario(
+            usuario_id
+        )
+        calificaciones_pendientes_compras = TransaccionRepository.contar_calificaciones_pendientes_compras_usuario(
+            usuario_id
+        )
 
         data = []
         for (
@@ -232,6 +238,8 @@ class TransaccionService:
                 "total_ventas": total_ventas,
                 "total_compras": total_compras,
                 "calificaciones_pendientes": calificaciones_pendientes,
+                "calificaciones_pendientes_ventas": calificaciones_pendientes_ventas,
+                "calificaciones_pendientes_compras": calificaciones_pendientes_compras,
             },
             "paginacion": {
                 "total": total,

@@ -1,3 +1,5 @@
+from sqlalchemy import case
+
 from app import db
 from app.models.admin_log import AdminLog
 from app.models.anuncio import Anuncio
@@ -42,7 +44,8 @@ class AnuncioRepository:
     def listar_media_por_anuncio(anuncio_id):
         return MediaAnuncio.query.filter_by(anuncio_id=anuncio_id).order_by(
             MediaAnuncio.tipo_media.asc(),
-            MediaAnuncio.orden.asc().nullslast(),
+            case((MediaAnuncio.orden.is_(None), 1), else_=0),
+            MediaAnuncio.orden.asc(),
             MediaAnuncio.id.asc(),
         ).all()
 
@@ -125,7 +128,8 @@ class AnuncioRepository:
     def listar_media_detalle(anuncio_id):
         return MediaAnuncio.query.filter_by(anuncio_id=anuncio_id).order_by(
             MediaAnuncio.tipo_media.asc(),
-            MediaAnuncio.orden.asc().nullslast(),
+            case((MediaAnuncio.orden.is_(None), 1), else_=0),
+            MediaAnuncio.orden.asc(),
             MediaAnuncio.id.asc(),
         ).all()
 

@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
@@ -56,6 +56,10 @@ def create_app(test_config=None):
     app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
     app.register_blueprint(transacciones_bp, url_prefix="/api/v1/transacciones")
     app.register_blueprint(usuarios_bp, url_prefix="/api/v1/usuarios")
+
+    @app.route("/uploads/<path:filename>")
+    def servir_upload(filename):
+        return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
     return app
 
