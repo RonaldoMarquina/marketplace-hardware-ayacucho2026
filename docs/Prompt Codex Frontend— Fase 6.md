@@ -188,4 +188,3 @@ Cuando termines verifica que:
 - [ ] Diseño es responsive en mobile, tablet y desktop
 - [ ] No hay errores en consola del navegador
 
-Lee los archivos `docs/FRONTEND_CONTEXT.md` y `docs/Prompt Codex Frontend — Fase 6.md` e implementa todo lo que indica la Fase 6 en el orden exacto que especifica.

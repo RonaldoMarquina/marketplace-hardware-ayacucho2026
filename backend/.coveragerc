@@ -1,0 +1,16 @@
+[run]
+source = app
+branch = True
+omit =
+    tests/*
+    */__pycache__/*
+    */site-packages/*
+
+[report]
+show_missing = True
+skip_covered = False
+precision = 2
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError

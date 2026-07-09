@@ -47,6 +47,7 @@ const Navbar = () => {
   }
 
   const logoTarget = '/'
+  const publicProfileId = usuario?.id ?? null
 
   if (shouldHideNavbar) {
     return null
@@ -97,10 +98,10 @@ const Navbar = () => {
                       <Link className="rounded-2xl px-3 py-2 transition hover:bg-slate-50" to="/usuario/historial">
                         Mi historial
                       </Link>
-                      {usuario.id ? (
+                      {publicProfileId ? (
                         <Link
                           className="rounded-2xl px-3 py-2 transition hover:bg-slate-50"
-                          to={`/usuarios/${usuario.id}/perfil`}
+                          to={`/usuarios/${publicProfileId}/perfil`}
                         >
                           Mi perfil publico
                         </Link>
@@ -171,8 +172,8 @@ const Navbar = () => {
                 <Link className="rounded-2xl px-3 py-2 transition hover:bg-slate-50" to="/usuario/historial">
                   Mi historial
                 </Link>
-                {usuario.id ? (
-                  <Link className="rounded-2xl px-3 py-2 transition hover:bg-slate-50" to={`/usuarios/${usuario.id}/perfil`}>
+                {publicProfileId ? (
+                  <Link className="rounded-2xl px-3 py-2 transition hover:bg-slate-50" to={`/usuarios/${publicProfileId}/perfil`}>
                     Mi perfil publico
                   </Link>
                 ) : null}

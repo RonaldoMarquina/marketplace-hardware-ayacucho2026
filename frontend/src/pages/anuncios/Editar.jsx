@@ -13,7 +13,7 @@ import {
 } from '../../utils/especificaciones'
 import { formatImageUrl } from '../../utils/format'
 
-const imageTypes = ['image/jpeg', 'image/png', 'image/webp']
+const imageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif']
 const videoTypes = ['video/mp4']
 const maxImageSize = 10 * 1024 * 1024
 const maxVideoSize = 30 * 1024 * 1024
@@ -50,7 +50,7 @@ const validateImageFiles = (files, currentCount = 0) => {
 
   for (const file of nextFiles) {
     if (!imageTypes.includes(file.type)) {
-      return { error: 'Solo se permiten imágenes JPG, PNG o WEBP.', files: [] }
+      return { error: 'Solo se permiten imágenes JPG, PNG, WEBP o AVIF.', files: [] }
     }
     if (file.size > maxImageSize) {
       return { error: 'Cada imagen debe pesar como máximo 10MB.', files: [] }
@@ -653,7 +653,11 @@ const Editar = () => {
                         <label className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
                           Reemplazar
                           <input
-                            accept={media.tipo_media === 'video' ? '.mp4' : '.jpg,.jpeg,.png,.webp'}
+                            accept={
+                              media.tipo_media === 'video'
+                                ? '.mp4'
+                                : '.jpg,.jpeg,.png,.webp,.avif'
+                            }
                             className="hidden"
                             onChange={(event) => handleReplaceMedia(media.id, event.target.files?.[0])}
                             type="file"
@@ -692,7 +696,7 @@ const Editar = () => {
                   <label className="mt-4 inline-flex cursor-pointer rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
                     Seleccionar imágenes
                     <input
-                      accept=".jpg,.jpeg,.png,.webp"
+                      accept=".jpg,.jpeg,.png,.webp,.avif"
                       className="hidden"
                       multiple
                       onChange={(event) => handleNewImages(event.target.files)}

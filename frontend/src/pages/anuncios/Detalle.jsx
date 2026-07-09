@@ -82,7 +82,7 @@ const Detalle = () => {
   const [videoOpen, setVideoOpen] = useState(false)
   const [desactivarOpen, setDesactivarOpen] = useState(false)
   const [vendidoOpen, setVendidoOpen] = useState(false)
-  const [compradorId, setCompradorId] = useState('')
+  const [selectedBuyerId, setSelectedBuyerId] = useState('')
   const [actionLoading, setActionLoading] = useState('')
 
   useEffect(() => {
@@ -138,6 +138,29 @@ const Detalle = () => {
       }),
     [anuncio?.especificaciones],
   )
+
+  const buyerContacts = anuncio?.contactos_interesados ?? []
+
+  useEffect(() => {
+    if (!vendidoOpen) {
+      return
+    }
+
+    const firstActiveBuyer = buyerContacts.find((contact) => contact.estado === 'ACTIVO')
+
+    if (buyerContacts.length === 0) {
+      setSelectedBuyerId('')
+      return
+    }
+
+    if (
+      !buyerContacts.some(
+        (contact) => String(contact.id) === selectedBuyerId && contact.estado === 'ACTIVO',
+      )
+    ) {
+      setSelectedBuyerId(firstActiveBuyer ? String(firstActiveBuyer.id) : '')
+    }
+  }, [buyerContacts, selectedBuyerId, vendidoOpen])
 
   const refreshDetalle = async () => {
     const response = await api.get(`/anuncios/${id}`)
@@ -219,16 +242,22 @@ const Detalle = () => {
 
   const handleMarcarVendido = async (event) => {
     event.preventDefault()
+
+    if (!selectedBuyerId) {
+      setOwnerMessage('Selecciona al comprador que contactó este anuncio antes de confirmar la venta.')
+      return
+    }
+
     setActionLoading('vendido')
     setOwnerMessage('')
 
     try {
       await api.patch(`/anuncios/${id}/vendido`, {
-        comprador_id: Number(compradorId),
+        comprador_id: Number(selectedBuyerId),
       })
       setVendidoOpen(false)
-      setCompradorId('')
-      navigate('/', { replace: true })
+      setSelectedBuyerId('')
+      navigate('/usuario/panel', { replace: true })
     } catch (requestError) {
       setOwnerMessage(
         requestError.response?.data?.mensaje ||
@@ -238,6 +267,26 @@ const Detalle = () => {
     } finally {
       setActionLoading('')
     }
+  }
+
+  const handleOpenSoldModal = () => {
+    setOwnerMessage('')
+
+    if (buyerContacts.length === 0) {
+      setOwnerMessage(
+        'Aún no puedes marcar este anuncio como vendido porque ningún comprador lo ha contactado desde la plataforma.'
+      )
+      return
+    }
+
+    if (!buyerContacts.some((contact) => contact.estado === 'ACTIVO')) {
+      setOwnerMessage(
+        'No puedes confirmar la venta todavía porque los compradores que contactaron ya no tienen una cuenta activa.'
+      )
+      return
+    }
+
+    setVendidoOpen(true)
   }
 
   if (cargando) {
@@ -483,7 +532,7 @@ const Detalle = () => {
 
                     <button
                       className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                      onClick={() => setVendidoOpen(true)}
+                      onClick={handleOpenSoldModal}
                       type="button"
                     >
                       Marcar como vendido
@@ -540,20 +589,60 @@ const Detalle = () => {
         <Modal onClose={() => setVendidoOpen(false)} title="Marcar como vendido">
           <form className="space-y-4" onSubmit={handleMarcarVendido}>
             <p className="text-sm leading-6 text-slate-600">
-              Ingresa el `comprador_id` del usuario que concretó la compra. Debe haber contactado
-              este anuncio previamente.
+              Selecciona al comprador que concretó la compra. Solo aparecen usuarios que
+              contactaron este anuncio previamente desde la plataforma.
             </p>
-            <input
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400"
-              min="1"
-              onChange={(event) => setCompradorId(event.target.value)}
-              placeholder="Ej. 12"
-              type="number"
-              value={compradorId}
-            />
+            <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
+              {buyerContacts.map((contact) => {
+                const isSelected = selectedBuyerId === String(contact.id)
+                const isActive = contact.estado === 'ACTIVO'
+
+                return (
+                  <label
+                    className={`block cursor-pointer rounded-2xl border px-4 py-4 transition ${
+                      isSelected
+                        ? 'border-sky-400 bg-sky-50'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    } ${!isActive ? 'opacity-70' : ''}`}
+                    key={contact.id}
+                  >
+                    <input
+                      checked={isSelected}
+                      className="sr-only"
+                      disabled={!isActive}
+                      name="comprador_id"
+                      onChange={() => setSelectedBuyerId(String(contact.id))}
+                      type="radio"
+                      value={contact.id}
+                    />
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{contact.nombre}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {contact.correo}
+                          {contact.telefono ? ` · ${contact.telefono}` : ''}
+                        </p>
+                        <p className="mt-2 text-xs text-slate-500">
+                          Último contacto: {formatDateTime(contact.ultimo_contacto_at)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                          Contactos
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-slate-900">{contact.total_contactos}</p>
+                        {!isActive ? (
+                          <p className="mt-2 text-xs font-semibold text-amber-700">Cuenta no activa</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
             <button
               className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white"
-              disabled={actionLoading === 'vendido' || !compradorId}
+              disabled={actionLoading === 'vendido' || !selectedBuyerId}
               type="submit"
             >
               {actionLoading === 'vendido' ? 'Guardando...' : 'Confirmar venta'}

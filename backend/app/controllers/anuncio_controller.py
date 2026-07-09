@@ -448,6 +448,8 @@ def _parse_positive_int(raw_value, param_name):
 def _extraer_query_busqueda(args):
     data = {}
     for key in args.keys():
+        if key.startswith("specs[") or key.startswith("spec_"):
+            continue
         if not key.startswith("specs["):
             data[key] = args.get(key)
     return data
@@ -456,11 +458,14 @@ def _extraer_query_busqueda(args):
 def _extraer_specs_query(args):
     specs = {}
     for key in args.keys():
-        if not key.startswith("specs[") or not key.endswith("]"):
+        if key.startswith("specs[") and key.endswith("]"):
+            spec_key = key[6:-1]
+            specs[spec_key] = (args.get(key) or "").strip()
             continue
 
-        spec_key = key[6:-1]
-        specs[spec_key] = (args.get(key) or "").strip()
+        if key.startswith("spec_"):
+            spec_key = key[5:]
+            specs[spec_key] = (args.get(key) or "").strip()
     return specs
 
 

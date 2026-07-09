@@ -11,6 +11,13 @@ const getUserFromPayload = (payload) => ({
   estado: payload.estado ?? null,
 })
 
+const mergeUserData = (baseUser, overrideUser = {}) => ({
+  ...baseUser,
+  ...Object.fromEntries(
+    Object.entries(overrideUser).filter(([, value]) => value !== undefined && value !== null),
+  ),
+})
+
 const parseTokenPayload = (token) => {
   try {
     const [, payload] = token.split('.')
@@ -58,10 +65,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = (token, datosUsuario) => {
     const payload = parseTokenPayload(token)
-    const usuario = {
-      ...getUserFromPayload(payload ?? {}),
-      ...datosUsuario,
-    }
+    const usuario = mergeUserData(getUserFromPayload(payload ?? {}), datosUsuario)
 
     localStorage.setItem('token', token)
     localStorage.setItem('auth_user', JSON.stringify(usuario))
@@ -69,6 +73,17 @@ export const AuthProvider = ({ children }) => {
       usuario,
       token,
       cargando: false,
+    })
+  }
+
+  const updateUser = (partialUser) => {
+    setAuthState((current) => {
+      const usuario = mergeUserData(current.usuario ?? {}, partialUser)
+      localStorage.setItem('auth_user', JSON.stringify(usuario))
+      return {
+        ...current,
+        usuario,
+      }
     })
   }
 
@@ -94,10 +109,7 @@ export const AuthProvider = ({ children }) => {
     const storedUser = parseStoredUser()
 
     setAuthState({
-      usuario: {
-        ...getUserFromPayload(payload),
-        ...storedUser,
-      },
+      usuario: mergeUserData(getUserFromPayload(payload), storedUser),
       token,
       cargando: false,
     })
@@ -106,6 +118,7 @@ export const AuthProvider = ({ children }) => {
   const value = {
     ...authState,
     login,
+    updateUser,
     logout,
     esAdmin,
     esTienda,

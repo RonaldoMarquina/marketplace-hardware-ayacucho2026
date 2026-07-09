@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# Backend generated files
+backend/.coverage
+backend/coverage.xml
+backend/htmlcov/
+backend/uploads/
+
+# Local environment files
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.swp

@@ -88,21 +88,7 @@ class UsuarioService:
         total_compras = UsuarioRepository.contar_compras(usuario_id)
         calificaciones_pendientes = UsuarioRepository.contar_calificaciones_pendientes(usuario_id)
 
-        perfil = {
-            "id": usuario.id,
-            "nombre": usuario.nombre,
-            "correo": usuario.correo,
-            "telefono": usuario.telefono,
-            "es_tienda_verificada": usuario.rol == "TIENDA_VERIFICADA",
-            "estado": usuario.estado,
-            "miembro_desde": usuario.created_at.isoformat() if usuario.created_at else None,
-        }
-        if usuario.rol == "TIENDA_VERIFICADA" and tienda is not None:
-            perfil["tienda"] = {
-                "nombre_comercial": tienda.nombre_comercial,
-                "ruc": tienda.ruc,
-                "direccion": tienda.direccion,
-            }
+        perfil = _build_panel_profile(usuario, tienda)
 
         limite_maximo = None if usuario.rol == "TIENDA_VERIFICADA" else MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR
         disponibles = None if limite_maximo is None else max(0, limite_maximo - total_activos)
@@ -153,6 +139,124 @@ class UsuarioService:
             "error": None,
             "message": "Panel del usuario obtenido correctamente.",
         }
+
+    @staticmethod
+    def actualizar_perfil_usuario(usuario_id, data):
+        registro = UsuarioRepository.buscar_usuario_y_tienda(usuario_id)
+        if not registro:
+            return _error_response("FORBIDDEN", "La cuenta debe estar activa para actualizar el perfil.")
+
+        usuario, tienda = registro
+        if usuario.estado != "ACTIVO":
+            return _error_response("FORBIDDEN", "La cuenta debe estar activa para actualizar el perfil.")
+
+        if usuario.rol == "TIENDA_VERIFICADA":
+            if tienda is None:
+                return _error_response("FORBIDDEN", "No se pudo identificar la informacion de la tienda.")
+
+            cambios = {}
+
+            if "nombre_comercial" in data:
+                nombre_comercial = data["nombre_comercial"]
+                conflicto = UsuarioRepository.buscar_tienda_por_nombre_comercial(nombre_comercial)
+                if conflicto and conflicto.usuario_id != usuario.id:
+                    return _error_response("CONFLICT", "El nombre comercial ya se encuentra registrado.")
+                cambios["nombre_comercial"] = nombre_comercial
+
+            if "telefono" in data:
+                telefono = data["telefono"]
+                conflicto = UsuarioRepository.buscar_usuario_por_telefono(telefono)
+                if conflicto and conflicto.id != usuario.id:
+                    return _error_response("CONFLICT", "El telefono ya se encuentra registrado.")
+                cambios["telefono"] = telefono
+
+            if "direccion" in data:
+                cambios["direccion"] = data["direccion"]
+
+            if not cambios:
+                return _error_response("EMPTY_BODY", "Debes enviar al menos un campo editable.")
+
+            try:
+                if "nombre_comercial" in cambios:
+                    usuario.nombre = cambios["nombre_comercial"]
+                    if tienda is not None:
+                        tienda.nombre_comercial = cambios["nombre_comercial"]
+
+                if "telefono" in cambios:
+                    usuario.telefono = cambios["telefono"]
+
+                if "direccion" in cambios and tienda is not None:
+                    tienda.direccion = cambios["direccion"]
+
+                UsuarioRepository.commit()
+            except Exception:
+                UsuarioRepository.rollback()
+                raise
+
+            return {
+                "success": True,
+                "data": {
+                    "perfil": _build_panel_profile(usuario, tienda),
+                    "campos_actualizados": list(cambios.keys()),
+                },
+                "error": None,
+                "message": "Perfil actualizado correctamente.",
+            }
+
+        cambios = {}
+
+        if "nombre" in data:
+            cambios["nombre"] = data["nombre"]
+
+        if "telefono" in data:
+            telefono = data["telefono"]
+            conflicto = UsuarioRepository.buscar_usuario_por_telefono(telefono)
+            if conflicto and conflicto.id != usuario.id:
+                return _error_response("CONFLICT", "El telefono ya se encuentra registrado.")
+            cambios["telefono"] = telefono
+
+        if not cambios:
+            return _error_response("EMPTY_BODY", "Debes enviar al menos un campo editable.")
+
+        try:
+            if "nombre" in cambios:
+                usuario.nombre = cambios["nombre"]
+            if "telefono" in cambios:
+                usuario.telefono = cambios["telefono"]
+
+            UsuarioRepository.commit()
+        except Exception:
+            UsuarioRepository.rollback()
+            raise
+
+        return {
+            "success": True,
+            "data": {
+                "perfil": _build_panel_profile(usuario, tienda),
+                "campos_actualizados": list(cambios.keys()),
+            },
+            "error": None,
+            "message": "Perfil actualizado correctamente.",
+        }
+
+
+def _build_panel_profile(usuario, tienda):
+    perfil = {
+        "id": usuario.id,
+        "nombre": usuario.nombre,
+        "correo": usuario.correo,
+        "telefono": usuario.telefono,
+        "es_tienda_verificada": usuario.rol == "TIENDA_VERIFICADA",
+        "estado": usuario.estado,
+        "miembro_desde": usuario.created_at.isoformat() if usuario.created_at else None,
+    }
+    if usuario.rol == "TIENDA_VERIFICADA" and tienda is not None:
+        perfil["tienda"] = {
+            "nombre_comercial": tienda.nombre_comercial,
+            "ruc": tienda.ruc,
+            "direccion": tienda.direccion,
+        }
+    return perfil
 
 
 def _float_or_none(value):

@@ -28,6 +28,7 @@ def app(tmp_path):
         yield flask_app
         db.session.remove()
         db.drop_all()
+        db.engine.dispose()
         AuthService._login_attempts.clear()
         AuthService._password_reset_attempts.clear()
 

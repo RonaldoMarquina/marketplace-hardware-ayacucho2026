@@ -10,6 +10,7 @@ IMAGE_SIGNATURES = {
     "jpeg": (b"\xff\xd8\xff",),
     "png": (b"\x89PNG\r\n\x1a\n",),
     "webp": (b"RIFF",),
+    "avif": (b"\x00\x00\x00",),
 }
 
 VIDEO_SIGNATURES = {
@@ -95,6 +96,12 @@ def validate_and_store_media(file_storage, upload_folder, anuncio_id):
 def _valid_real_signature(header, extension, tipo_media):
     if tipo_media == "imagen" and extension == "webp":
         return header.startswith(b"RIFF") and header[8:12] == b"WEBP"
+
+    if tipo_media == "imagen" and extension == "avif":
+        return len(header) >= 12 and header[4:8] == b"ftyp" and header[8:12] in {
+            b"avif",
+            b"avis",
+        }
 
     if tipo_media == "video" and extension == "mp4":
         return len(header) >= 12 and header[4:8] == b"ftyp"

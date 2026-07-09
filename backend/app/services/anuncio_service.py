@@ -1,3 +1,4 @@
+from collections import defaultdict, deque
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from math import ceil
@@ -47,6 +48,17 @@ ORDER_BY_BUSQUEDA = {
     "precio_asc": (Anuncio.precio.asc(), Anuncio.id.desc()),
     "precio_desc": (Anuncio.precio.desc(), Anuncio.id.desc()),
 }
+SEARCH_ALIASES = {
+    "motherboard": ("placa madre", "placa_madre", "board", "mainboard"),
+    "placa madre": ("motherboard", "placa_madre", "mainboard"),
+    "gpu": ("tarjeta grafica", "tarjeta gráfica", "grafica", "gráfica", "video"),
+    "tarjeta grafica": ("gpu", "tarjeta gráfica", "grafica", "gráfica", "video"),
+    "tarjeta gráfica": ("gpu", "tarjeta grafica", "grafica", "gráfica", "video"),
+    "psu": ("fuente poder", "fuente de poder", "power supply"),
+    "fuente poder": ("psu", "fuente de poder", "power supply"),
+    "liquid cooler": ("refrigeracion liquida", "refrigeración líquida", "liquida aio"),
+    "cooler liquido": ("refrigeracion liquida", "refrigeración líquida", "liquida aio"),
+}
 
 
 class AnuncioService:
@@ -54,7 +66,7 @@ class AnuncioService:
     def obtener_feed_publico(page, limit):
         offset = (page - 1) * limit
         total = AnuncioRepository.contar_anuncios_publicos()
-        registros = AnuncioRepository.listar_feed_publico(offset, limit)
+        registros = _diversify_feed_records(AnuncioRepository.listar_feed_publico(offset, limit))
 
         data = []
         for item in registros:
@@ -116,12 +128,7 @@ class AnuncioService:
             query = query.filter(_build_spec_filter(spec_key, spec_value))
 
         if filters.get("q"):
-            pattern = f"%{_escape_like(filters['q'].lower())}%"
-            query = query.filter(or_(
-                func.lower(Anuncio.titulo).like(pattern, escape="\\"),
-                func.lower(Anuncio.descripcion).like(pattern, escape="\\"),
-                func.lower(Anuncio.subcategoria).like(pattern, escape="\\"),
-            ))
+            query = query.filter(_build_text_search_filter(filters["q"]))
 
         query = query.order_by(*ORDER_BY_BUSQUEDA[filters["order_by"]])
         total = AnuncioRepository.contar_query_publica(query)
@@ -156,6 +163,11 @@ class AnuncioService:
                 return _error_response("NOT_FOUND", "Anuncio no encontrado.")
 
         media = AnuncioRepository.listar_media_detalle(anuncio_id)
+        contactos_propietario = (
+            AnuncioRepository.listar_contactos_anuncio_propietario(anuncio_id)
+            if es_propietario
+            else None
+        )
         current_app.logger.info(
             "HU-11 detalle anuncio_id=%s viewer=%s",
             anuncio_id,
@@ -168,6 +180,7 @@ class AnuncioService:
                 vendedor=vendedor,
                 tienda=tienda,
                 media=media,
+                contactos_propietario=contactos_propietario,
                 viewer_user_id=viewer_user_id,
                 es_propietario=es_propietario,
             ),
@@ -1173,7 +1186,64 @@ def _serialize_public_listing(item):
     }
 
 
-def _serialize_detail_listing(anuncio, vendedor, tienda, media, viewer_user_id, es_propietario):
+def _diversify_feed_records(records):
+    if len(records) <= 2:
+        return records
+
+    grouped_records = defaultdict(deque)
+    seller_order = []
+
+    for item in records:
+        seller_id = getattr(item, "vendedor_id", None) or getattr(item, "vendedor_nombre", None)
+        if seller_id not in grouped_records:
+            seller_order.append(seller_id)
+        grouped_records[seller_id].append(item)
+
+    if len(seller_order) <= 1:
+        return records
+
+    diversified = []
+    while len(diversified) < len(records):
+        appended_in_cycle = False
+
+        for seller_id in seller_order:
+            seller_items = grouped_records[seller_id]
+            if not seller_items:
+                continue
+
+            if diversified and _same_seller(diversified[-1], seller_items[0]):
+                continue
+
+            diversified.append(seller_items.popleft())
+            appended_in_cycle = True
+
+        if appended_in_cycle:
+            continue
+
+        for seller_id in seller_order:
+            seller_items = grouped_records[seller_id]
+            if seller_items:
+                diversified.append(seller_items.popleft())
+                break
+
+    return diversified
+
+
+def _same_seller(left_item, right_item):
+    left_seller = getattr(left_item, "vendedor_id", None) or getattr(left_item, "vendedor_nombre", None)
+    right_seller = getattr(right_item, "vendedor_id", None) or getattr(right_item, "vendedor_nombre", None)
+    return left_seller == right_seller
+
+
+def _serialize_detail_listing(
+    anuncio,
+    vendedor,
+    tienda,
+    media,
+    contactos_propietario,
+    viewer_user_id,
+    es_propietario,
+):
     precio = anuncio.precio
     if hasattr(precio, "as_tuple"):
         precio = float(precio)
@@ -1211,6 +1281,20 @@ def _serialize_detail_listing(anuncio, vendedor, tienda, media, viewer_user_id, 
             "estado": anuncio.estado,
             "reactivaciones_restantes": max(0, MAX_REACTIVACIONES - _normalizar_reactivaciones_count(anuncio)),
         }
+        response["contactos_interesados"] = [
+            {
+                "id": item.id,
+                "nombre": item.nombre,
+                "correo": item.correo,
+                "telefono": item.telefono,
+                "estado": item.estado,
+                "total_contactos": int(item.total_contactos or 0),
+                "ultimo_contacto_at": (
+                    item.ultimo_contacto_at.isoformat() if item.ultimo_contacto_at else None
+                ),
+            }
+            for item in (contactos_propietario or [])
+        ]
 
     return response
 
@@ -1245,6 +1329,26 @@ def _build_spec_filter(spec_key, spec_value):
     return cast(expression, String) == spec_value
 
 
+def _build_text_search_filter(search_term):
+    patterns = [f"%{_escape_like(term)}%" for term in _expand_search_terms(search_term)]
+    normalized_subcategoria = func.replace(func.lower(Anuncio.subcategoria), "_", " ")
+    normalized_categoria = func.replace(func.lower(Anuncio.categoria), "_", " ")
+    specs_text = func.lower(cast(Anuncio.especificaciones, String))
+
+    clauses = []
+    for pattern in patterns:
+        clauses.extend((
+            func.lower(Anuncio.titulo).like(pattern, escape="\\"),
+            func.lower(Anuncio.descripcion).like(pattern, escape="\\"),
+            func.lower(Anuncio.subcategoria).like(pattern, escape="\\"),
+            normalized_subcategoria.like(pattern, escape="\\"),
+            normalized_categoria.like(pattern, escape="\\"),
+            specs_text.like(pattern, escape="\\"),
+        ))
+
+    return or_(*clauses)
+
+
 def _json_spec_expression(spec_key):
     path = f"$.{spec_key}"
     dialect_name = Anuncio.query.session.get_bind().dialect.name
@@ -1256,6 +1360,21 @@ def _json_spec_expression(spec_key):
 
 def _escape_like(value):
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _expand_search_terms(value):
+    normalized = value.strip().lower()
+    compact = normalized.replace("_", " ")
+    terms = {normalized, compact}
+
+    alias_terms = SEARCH_ALIASES.get(normalized, ()) + SEARCH_ALIASES.get(compact, ())
+    for alias in alias_terms:
+        alias_normalized = alias.strip().lower()
+        if alias_normalized:
+            terms.add(alias_normalized)
+            terms.add(alias_normalized.replace("_", " "))
+
+    return tuple(term for term in terms if term)
 
 
 def _sanitize_contact_title(value):

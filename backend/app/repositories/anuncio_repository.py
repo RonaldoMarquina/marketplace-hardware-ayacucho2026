@@ -82,6 +82,7 @@ class AnuncioRepository:
             Anuncio.condicion,
             Anuncio.created_at,
             Anuncio.updated_at,
+            Usuario.id.label("vendedor_id"),
             Usuario.nombre.label("vendedor_nombre"),
             Usuario.rol.label("vendedor_rol"),
             MediaAnuncio.ruta_relativa.label("imagen_principal"),
@@ -131,6 +132,32 @@ class AnuncioRepository:
             case((MediaAnuncio.orden.is_(None), 1), else_=0),
             MediaAnuncio.orden.asc(),
             MediaAnuncio.id.asc(),
+        ).all()
+
+    @staticmethod
+    def listar_contactos_anuncio_propietario(anuncio_id):
+        return db.session.query(
+            Usuario.id.label("id"),
+            Usuario.nombre.label("nombre"),
+            Usuario.correo.label("correo"),
+            Usuario.telefono.label("telefono"),
+            Usuario.estado.label("estado"),
+            db.func.count(ContactoLog.id).label("total_contactos"),
+            db.func.max(ContactoLog.created_at).label("ultimo_contacto_at"),
+        ).join(
+            Usuario,
+            Usuario.id == ContactoLog.comprador_id,
+        ).filter(
+            ContactoLog.anuncio_id == anuncio_id,
+        ).group_by(
+            Usuario.id,
+            Usuario.nombre,
+            Usuario.correo,
+            Usuario.telefono,
+            Usuario.estado,
+        ).order_by(
+            db.func.max(ContactoLog.created_at).desc(),
+            Usuario.id.desc(),
         ).all()
 
     @staticmethod

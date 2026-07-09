@@ -2,7 +2,9 @@ from flask import current_app, jsonify
 from flask import request
 from flask_jwt_extended import get_jwt_identity
 
-from app.schemas.usuario_schema import HistorialTransaccionesSchema
+from marshmallow import ValidationError
+
+from app.schemas.usuario_schema import ActualizarPerfilSchema, HistorialTransaccionesSchema
 from app.services.transaccion_service import TransaccionService
 from app.services.usuario_service import UsuarioService
 
@@ -62,7 +64,6 @@ def historial_transacciones_me_controller():
             limit,
         )
     except Exception as error:
-        from marshmallow import ValidationError
         if isinstance(error, ValidationError):
             return jsonify({
                 "success": False,
@@ -97,6 +98,33 @@ def panel_usuario_me_controller():
     return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
 
 
+def actualizar_perfil_me_controller():
+    schema = ActualizarPerfilSchema()
+    request_data = request.get_json(silent=True) or {}
+
+    try:
+        datos_validados = schema.load(request_data)
+        usuario_id = int(get_jwt_identity())
+        respuesta = UsuarioService.actualizar_perfil_usuario(usuario_id, datos_validados)
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": "Campos invalidos.",
+        }), 422
+    except Exception:
+        current_app.logger.exception("Error inesperado al actualizar perfil del usuario")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": "Error interno del servidor.",
+        }), 500
+
+    return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
+
+
 def _status_for_usuario_response(respuesta, success_status):
     if respuesta.get("success"):
         return success_status
@@ -104,7 +132,9 @@ def _status_for_usuario_response(respuesta, success_status):
     status_by_error = {
         "FORBIDDEN": 403,
         "NOT_FOUND": 404,
+        "CONFLICT": 409,
         "VALIDATION_ERROR": 422,
+        "EMPTY_BODY": 400,
     }
     return status_by_error.get(respuesta.get("error"), 500)
 

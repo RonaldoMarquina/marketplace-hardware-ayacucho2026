@@ -21,6 +21,14 @@ class UsuarioRepository:
         ).first()
 
     @staticmethod
+    def buscar_usuario_por_telefono(telefono):
+        return Usuario.query.filter_by(telefono=telefono).first()
+
+    @staticmethod
+    def buscar_tienda_por_nombre_comercial(nombre_comercial):
+        return Tienda.query.filter_by(nombre_comercial=nombre_comercial).first()
+
+    @staticmethod
     def listar_usuarios_admin(estado=None, rol=None, q=None, offset=0, limit=20):
         query = db.session.query(
             Usuario,

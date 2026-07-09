@@ -175,6 +175,43 @@ class HistorialTransaccionesSchema(Schema):
         return datos
 
 
+class ActualizarPerfilSchema(Schema):
+    nombre = fields.String(
+        required=False,
+        allow_none=False,
+        validate=validate.Length(min=1, max=100),
+    )
+    telefono = fields.String(
+        required=False,
+        allow_none=False,
+        validate=validate.Regexp(
+            r"^\d{9}$",
+            error="El telefono debe tener exactamente 9 digitos numericos.",
+        ),
+    )
+    nombre_comercial = fields.String(
+        required=False,
+        allow_none=False,
+        validate=validate.Length(min=1, max=100),
+    )
+    direccion = fields.String(
+        required=False,
+        allow_none=False,
+        validate=validate.Length(min=1, max=200),
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+
+        datos = data.copy()
+        for campo in ("nombre", "telefono", "nombre_comercial", "direccion"):
+            if isinstance(datos.get(campo), str):
+                datos[campo] = datos[campo].strip()
+        return datos
+
+
 class AdminUsuariosFiltroSchema(Schema):
     estado = fields.String(
         required=False,

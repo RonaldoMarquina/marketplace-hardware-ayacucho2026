@@ -159,15 +159,7 @@ class BuscarAnunciosSchema(Schema):
     """Valida los query params publicos de HU-10."""
 
     categoria = fields.String(validate=validate.OneOf(CATEGORIAS_ANUNCIO))
-    subcategoria = fields.String(
-        validate=[
-            validate.Length(min=1, max=50),
-            validate.Regexp(
-                r"^[A-Za-z0-9 ]+$",
-                error="La subcategoria solo permite caracteres alfanumericos y espacios.",
-            ),
-        ]
-    )
+    subcategoria = fields.String(validate=validate.OneOf(SUBCATEGORIAS_ANUNCIO))
     condicion = fields.String(validate=validate.OneOf(CONDICIONES_ANUNCIO))
     precio_min = fields.Decimal(as_string=False)
     precio_max = fields.Decimal(as_string=False)
@@ -204,6 +196,9 @@ class BuscarAnunciosSchema(Schema):
 
         if isinstance(datos.get("condicion"), str):
             datos["condicion"] = datos["condicion"].upper()
+
+        if isinstance(datos.get("subcategoria"), str):
+            datos["subcategoria"] = _normalizar_taxonomia(datos["subcategoria"])
 
         if isinstance(datos.get("order_by"), str):
             datos["order_by"] = datos["order_by"].lower()
