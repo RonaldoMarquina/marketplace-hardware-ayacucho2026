@@ -22,7 +22,9 @@ los cambios funcionales y tecnicos antes o junto a la implementacion.
 - programacion asistida por IA como apoyo de implementacion, no como reemplazo
   de la especificacion
 - validacion funcional con PyTest y Postman
-- control de calidad con Pylint y SonarQube
+- control de calidad con Pylint, Bandit y SonarQube
+- endurecimiento de QA local con una ruta rapida y una validacion completa
+  previa a despliegue
 - trazabilidad documental en `docs/` y adopcion hibrida con OpenSpec
 
 ## SDD aplicado al proyecto
@@ -144,7 +146,17 @@ Luego la respuesta vuelve por la misma cadena hasta retornar JSON al cliente.
 - pruebas de integracion para flujos HTTP y reglas de negocio
 - cobertura automatizada con `pytest-cov`
 - analisis estatico con Pylint
-- revision complementaria con SonarQube
+- analisis estatico de seguridad con Bandit
+- consolidacion de calidad con SonarQube
+- flujo oficial de QA hardening:
+
+```text
+PyTest -> cobertura -> Pylint -> Bandit -> SonarQube
+```
+
+- validacion rapida para cambios pequenos mediante unit tests, Pylint y Bandit
+- validacion completa previa a despliegue mediante el script
+  `scripts/run-qa-hardening.ps1`
 
 ## Relacion con OpenSpec
 

@@ -10,17 +10,16 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$tempRoot = Join-Path $env:TEMP "hardware-ayacucho-sonar"
+$runId = [guid]::NewGuid().ToString("N")
+$tempRoot = Join-Path $repoRoot ".sonar_runs\$runId"
 $stagingDir = Join-Path $tempRoot "repo"
-
-if (Test-Path $tempRoot) {
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force
-}
 
 New-Item -ItemType Directory -Path $stagingDir | Out-Null
 
 $excludeDirs = @(
     ".git",
+    ".sonar_tmp",
+    ".sonar_runs",
     ".venv",
     ".pytest_tmp",
     ".pytest_cache",
@@ -53,6 +52,13 @@ $robocopyArgs = @(
 & robocopy @robocopyArgs | Out-Null
 if ($LASTEXITCODE -ge 8) {
     throw "Robocopy fallo al preparar la copia temporal para SonarQube."
+}
+
+$coverageReport = Join-Path $stagingDir "backend\coverage.xml"
+if (Test-Path $coverageReport) {
+    $coverageContent = Get-Content -LiteralPath $coverageReport -Raw
+    $coverageContent = $coverageContent.Replace("<source>app</source>", "<source>backend/app</source>")
+    Set-Content -LiteralPath $coverageReport -Value $coverageContent
 }
 
 $env:SONAR_HOST_URL = $SonarHostUrl

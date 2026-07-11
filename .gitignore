@@ -7,9 +7,13 @@ __pycache__/
 .pytest_cache_local/
 .pytest_tmp/
 backend/.pytest_tmp/
+backend/.pytest_tmp_backend/
 backend/.pytest_cache/
 backend/.pytest_cache_local/
+.pytest_tmp_root/
 .scannerwork/
+.sonar_tmp/
+.sonar_runs/
 
 # Virtual environments
 .venv/

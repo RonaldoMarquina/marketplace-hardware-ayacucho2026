@@ -44,6 +44,16 @@ Se aplican limites en flujos sensibles como:
 - uso de `.env` para desarrollo
 - `.env` excluido del control de versiones
 
+## Analisis estatico de seguridad
+
+- `Bandit` es la revision estatica especializada para el backend Python
+- el comando oficial local es `py -m bandit -c backend/bandit.yaml -r backend/app`
+- su alcance se limita a `backend/app` para evitar ruido de frontend y artefactos
+- la configuracion minima omite `B105` mientras existan falsos positivos
+  asociados a mensajes de validacion y mapas de estados HTTP
+- `SonarQube` sigue siendo la capa agregadora que consume `backend/coverage.xml`
+  y consolida calidad del monorepo
+
 ## Buenas practicas vigentes
 
 - no exponer trazas internas en respuestas
@@ -53,5 +63,5 @@ Se aplican limites en flujos sensibles como:
 
 ## Nota
 
-La seguridad operativa debe revisarse junto con las pruebas, SonarQube y la
-configuracion real del entorno antes de despliegue.
+La seguridad operativa debe revisarse junto con PyTest, Pylint, Bandit,
+SonarQube y la configuracion real del entorno antes de despliegue.
