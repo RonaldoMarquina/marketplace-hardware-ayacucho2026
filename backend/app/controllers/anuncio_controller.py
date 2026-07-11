@@ -12,6 +12,13 @@ from app.schemas.anuncio_schema import (
 )
 from app.services.anuncio_service import AnuncioService
 
+INVALID_FIELDS_MESSAGE = "Campos invalidos."
+INTERNAL_ERROR_MESSAGE = "Error interno del servidor."
+SEARCH_INVALID_MESSAGE = "Parametros de busqueda invalidos."
+LIMIT_EXCEEDED_MESSAGE = "El parametro limit no puede superar 50."
+SPECS_PREFIX = "specs["
+LEGACY_SPEC_PREFIX = "spec_"
+
 
 EDITABLE_FIELDS = {
     "titulo",
@@ -39,7 +46,7 @@ def publicar_anuncio_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), status_code
 
     try:
@@ -51,7 +58,7 @@ def publicar_anuncio_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=201)
@@ -74,7 +81,7 @@ def feed_anuncios_controller():
             "success": False,
             "data": {},
             "error": "VALIDATION_ERROR",
-            "message": "El parametro limit no puede superar 50.",
+            "message": LIMIT_EXCEEDED_MESSAGE,
         }), 400
 
     try:
@@ -85,7 +92,7 @@ def feed_anuncios_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), 200
@@ -102,7 +109,7 @@ def buscar_anuncios_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Parametros de busqueda invalidos.",
+            "message": SEARCH_INVALID_MESSAGE,
         }), _status_for_search_validation(error.messages)
 
     specs_error = _validar_specs_query(request.args)
@@ -119,7 +126,7 @@ def buscar_anuncios_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), 200
@@ -147,7 +154,7 @@ def detalle_anuncio_controller(anuncio_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -182,7 +189,7 @@ def editar_anuncio_controller(anuncio_id):
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), 422
 
     try:
@@ -194,7 +201,7 @@ def editar_anuncio_controller(anuncio_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -218,7 +225,7 @@ def marcar_vendido_controller(anuncio_id):
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), status_code
     except Exception:
         current_app.logger.exception("Error inesperado al marcar anuncio como vendido")
@@ -226,7 +233,7 @@ def marcar_vendido_controller(anuncio_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -242,7 +249,7 @@ def desactivar_anuncio_controller(anuncio_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -258,7 +265,7 @@ def reactivar_anuncio_controller(anuncio_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -283,7 +290,7 @@ def subir_media_controller(anuncio_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=201)
@@ -300,7 +307,7 @@ def reordenar_media_controller(anuncio_id):
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), 422
 
     try:
@@ -312,7 +319,7 @@ def reordenar_media_controller(anuncio_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -333,7 +340,7 @@ def eliminar_media_controller(anuncio_id, media_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -357,7 +364,7 @@ def reemplazar_media_controller(anuncio_id, media_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -377,7 +384,7 @@ def reportar_anuncio_controller(anuncio_id):
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), 422
     except ValueError as error:
         return jsonify({
@@ -392,7 +399,7 @@ def reportar_anuncio_controller(anuncio_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_anuncio_response(respuesta, success_status=200)
@@ -448,9 +455,9 @@ def _parse_positive_int(raw_value, param_name):
 def _extraer_query_busqueda(args):
     data = {}
     for key in args.keys():
-        if key.startswith("specs[") or key.startswith("spec_"):
+        if key.startswith((SPECS_PREFIX, LEGACY_SPEC_PREFIX)):
             continue
-        if not key.startswith("specs["):
+        if not key.startswith(SPECS_PREFIX):
             data[key] = args.get(key)
     return data
 
@@ -458,13 +465,13 @@ def _extraer_query_busqueda(args):
 def _extraer_specs_query(args):
     specs = {}
     for key in args.keys():
-        if key.startswith("specs[") and key.endswith("]"):
-            spec_key = key[6:-1]
+        if key.startswith(SPECS_PREFIX) and key.endswith("]"):
+            spec_key = key[len(SPECS_PREFIX):-1]
             specs[spec_key] = (args.get(key) or "").strip()
             continue
 
-        if key.startswith("spec_"):
-            spec_key = key[5:]
+        if key.startswith(LEGACY_SPEC_PREFIX):
+            spec_key = key[len(LEGACY_SPEC_PREFIX):]
             specs[spec_key] = (args.get(key) or "").strip()
     return specs
 
@@ -476,7 +483,7 @@ def _validar_specs_query(args):
             "success": False,
             "data": {"specs": ["No se permiten mas de 10 specs simultaneas."]},
             "error": "VALIDATION_ERROR",
-            "message": "Parametros de busqueda invalidos.",
+            "message": SEARCH_INVALID_MESSAGE,
         }
 
     for spec_key in specs:
@@ -485,7 +492,7 @@ def _validar_specs_query(args):
                 "success": False,
                 "data": {"specs": [f"La clave de spec '{spec_key}' es invalida."]},
                 "error": "VALIDATION_ERROR",
-                "message": "Parametros de busqueda invalidos.",
+                "message": SEARCH_INVALID_MESSAGE,
             }
 
     return None

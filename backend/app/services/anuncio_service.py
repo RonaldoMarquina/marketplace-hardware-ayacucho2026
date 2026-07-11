@@ -48,17 +48,25 @@ ORDER_BY_BUSQUEDA = {
     "precio_asc": (Anuncio.precio.asc(), Anuncio.id.desc()),
     "precio_desc": (Anuncio.precio.desc(), Anuncio.id.desc()),
 }
+GPU_TERMINO_TARJETA_GRAFICA = "tarjeta grafica"
+GPU_TERMINO_TARJETA_GRAFICA_TILDE = "tarjeta grÃ¡fica"
+GPU_TERMINO_GRAFICA_TILDE = "grÃ¡fica"
 SEARCH_ALIASES = {
     "motherboard": ("placa madre", "placa_madre", "board", "mainboard"),
     "placa madre": ("motherboard", "placa_madre", "mainboard"),
-    "gpu": ("tarjeta grafica", "tarjeta gráfica", "grafica", "gráfica", "video"),
-    "tarjeta grafica": ("gpu", "tarjeta gráfica", "grafica", "gráfica", "video"),
-    "tarjeta gráfica": ("gpu", "tarjeta grafica", "grafica", "gráfica", "video"),
+    "gpu": (GPU_TERMINO_TARJETA_GRAFICA, GPU_TERMINO_TARJETA_GRAFICA_TILDE, "grafica", GPU_TERMINO_GRAFICA_TILDE, "video"),
+    GPU_TERMINO_TARJETA_GRAFICA: ("gpu", GPU_TERMINO_TARJETA_GRAFICA_TILDE, "grafica", GPU_TERMINO_GRAFICA_TILDE, "video"),
+    "tarjeta gráfica": ("gpu", GPU_TERMINO_TARJETA_GRAFICA, "grafica", GPU_TERMINO_GRAFICA_TILDE, "video"),
     "psu": ("fuente poder", "fuente de poder", "power supply"),
     "fuente poder": ("psu", "fuente de poder", "power supply"),
     "liquid cooler": ("refrigeracion liquida", "refrigeración líquida", "liquida aio"),
     "cooler liquido": ("refrigeracion liquida", "refrigeración líquida", "liquida aio"),
 }
+
+
+ANUNCIO_NOT_FOUND_MESSAGE = "Anuncio no encontrado."
+ANUNCIO_BLOQUEADO_MESSAGE = "El anuncio se encuentra bloqueado."
+CONTACTO_CUENTA_INACTIVA_MESSAGE = "La cuenta debe estar activa para contactar anuncios."
 
 
 class AnuncioService:
@@ -153,14 +161,14 @@ class AnuncioService:
     def obtener_detalle_anuncio(anuncio_id, viewer_user_id=None):
         detalle = AnuncioRepository.buscar_detalle_anuncio(anuncio_id)
         if not detalle:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         anuncio, vendedor, tienda = detalle
         es_propietario = viewer_user_id == anuncio.usuario_id if viewer_user_id is not None else False
 
         if anuncio.estado != "ACTIVO":
             if not es_propietario or anuncio.estado in {"VENDIDO", "BLOQUEADO"}:
-                return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+                return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         media = AnuncioRepository.listar_media_detalle(anuncio_id)
         contactos_propietario = (
@@ -200,7 +208,7 @@ class AnuncioService:
 
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio or anuncio.estado != "ACTIVO":
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         if comprador.id == anuncio.usuario_id:
             return _error_response("CONFLICT", "No puedes contactarte a ti mismo por este anuncio.")
@@ -314,7 +322,7 @@ class AnuncioService:
     def editar_anuncio(anuncio_id, usuario_id, data):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         ownership_error = _validar_propietario(anuncio, usuario_id)
         if ownership_error:
@@ -378,7 +386,7 @@ class AnuncioService:
 
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         ownership_error = _validar_propietario(anuncio, usuario_id)
         if ownership_error:
@@ -451,7 +459,7 @@ class AnuncioService:
     def desactivar_anuncio(anuncio_id, usuario_id):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         ownership_error = _validar_propietario(anuncio, usuario_id)
         if ownership_error:
@@ -490,7 +498,7 @@ class AnuncioService:
     def reactivar_anuncio(anuncio_id, usuario_id):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         ownership_error = _validar_propietario(anuncio, usuario_id)
         if ownership_error:
@@ -551,7 +559,7 @@ class AnuncioService:
 
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio or anuncio.estado != "ACTIVO":
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         if anuncio.usuario_id == comprador_id:
             return _error_response("CONFLICT", "No puedes reportar tu propio anuncio.")
@@ -646,7 +654,7 @@ class AnuncioService:
     def bloquear_anuncio_admin(anuncio_id, admin_id, motivo_admin):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
         if anuncio.estado != "ACTIVO":
             return _error_response("CONFLICT", "Solo se puede bloquear un anuncio activo.")
 
@@ -691,7 +699,7 @@ class AnuncioService:
     def desbloquear_anuncio_admin(anuncio_id, admin_id, motivo_admin):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
         if anuncio.estado != "BLOQUEADO":
             return _error_response("CONFLICT", "Solo se puede desbloquear un anuncio bloqueado.")
 
@@ -769,7 +777,7 @@ class AnuncioService:
     def subir_media(anuncio_id, usuario_id, files, upload_folder):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         ownership_error = _validar_propietario(anuncio, usuario_id)
         if ownership_error:
@@ -860,7 +868,7 @@ class AnuncioService:
     def reordenar_media(anuncio_id, usuario_id, ordered_media_ids):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         ownership_error = _validar_propietario(anuncio, usuario_id)
         if ownership_error:
@@ -914,7 +922,7 @@ class AnuncioService:
     def eliminar_media(anuncio_id, media_id, usuario_id, upload_folder):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         ownership_error = _validar_propietario(anuncio, usuario_id)
         if ownership_error:
@@ -965,7 +973,7 @@ class AnuncioService:
     def reemplazar_media(anuncio_id, media_id, usuario_id, file_storage, upload_folder):
         anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
         if not anuncio:
-            return _error_response("NOT_FOUND", "Anuncio no encontrado.")
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
 
         ownership_error = _validar_propietario(anuncio, usuario_id)
         if ownership_error:
@@ -1097,7 +1105,7 @@ def _validar_propietario(anuncio, usuario_id):
 
 def _validar_estado_edicion(anuncio):
     if anuncio.estado == "BLOQUEADO":
-        return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
+        return _error_response("FORBIDDEN", ANUNCIO_BLOQUEADO_MESSAGE)
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio vendido no puede modificarse.")
     return None
@@ -1105,7 +1113,7 @@ def _validar_estado_edicion(anuncio):
 
 def _validar_estado_para_vendido(anuncio):
     if anuncio.estado == "BLOQUEADO":
-        return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
+        return _error_response("FORBIDDEN", ANUNCIO_BLOQUEADO_MESSAGE)
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio ya se encuentra vendido.")
     if anuncio.estado == "INACTIVO":
@@ -1135,7 +1143,7 @@ def _validar_estado_para_reactivar(anuncio):
 
 def _validar_estado_operacion_media(anuncio):
     if anuncio.estado == "BLOQUEADO":
-        return _error_response("FORBIDDEN", "El anuncio se encuentra bloqueado.")
+        return _error_response("FORBIDDEN", ANUNCIO_BLOQUEADO_MESSAGE)
     if anuncio.estado == "VENDIDO":
         return _error_response("CONFLICT", "El anuncio vendido no permite cambios de media.")
     return None
@@ -1147,7 +1155,7 @@ def _normalizar_reactivaciones_count(anuncio):
 
 def _validar_estado_comprador_contacto(usuario):
     if usuario.estado == "PENDIENTE_VERIFICACION":
-        return _error_response("FORBIDDEN", "La cuenta debe estar activa para contactar anuncios.")
+        return _error_response("FORBIDDEN", CONTACTO_CUENTA_INACTIVA_MESSAGE)
 
     if usuario.estado == "BLOQUEADO":
         return _error_response("FORBIDDEN", "La cuenta se encuentra bloqueada.")
@@ -1155,9 +1163,9 @@ def _validar_estado_comprador_contacto(usuario):
     if usuario.rol == "TIENDA_VERIFICADA":
         tienda = getattr(usuario, "tienda", None)
         if tienda and tienda.estado == "EN_REVISION":
-            return _error_response("FORBIDDEN", "La cuenta debe estar activa para contactar anuncios.")
+            return _error_response("FORBIDDEN", CONTACTO_CUENTA_INACTIVA_MESSAGE)
         if tienda and tienda.estado == "RECHAZADO":
-            return _error_response("FORBIDDEN", "La cuenta debe estar activa para contactar anuncios.")
+            return _error_response("FORBIDDEN", CONTACTO_CUENTA_INACTIVA_MESSAGE)
 
     return None
 

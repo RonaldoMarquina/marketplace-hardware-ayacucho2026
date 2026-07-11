@@ -239,12 +239,7 @@ const Usuarios = () => {
     setActionLoading(true)
 
     try {
-      const payload =
-        modalState.accion === 'activar'
-          ? undefined
-          : modalState.accion === 'rechazar'
-            ? { motivo: motivo.trim() }
-            : { motivo: motivo.trim() }
+      const payload = modalState.accion === 'activar' ? undefined : { motivo: motivo.trim() }
 
       const response =
         modalState.accion === 'activar'

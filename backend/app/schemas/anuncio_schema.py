@@ -10,6 +10,8 @@ from app.models.anuncio import (
 )
 from app.models.reporte import MOTIVOS_REPORTE
 
+JSON_BODY_REQUIRED_MESSAGE = "El cuerpo de la solicitud debe ser JSON."
+
 
 class CrearAnuncioSchema(Schema):
     """Valida el body de HU-05 antes de tocar la base de datos."""
@@ -49,7 +51,7 @@ class CrearAnuncioSchema(Schema):
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos = data.copy()
         for campo in ("titulo", "categoria", "subcategoria", "condicion", "descripcion"):
@@ -112,7 +114,7 @@ class EditarAnuncioSchema(Schema):
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos = data.copy()
         for campo in ("titulo", "categoria", "subcategoria", "condicion", "descripcion"):
@@ -233,7 +235,7 @@ class ReportarAnuncioSchema(Schema):
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos = data.copy()
         if isinstance(datos.get("motivo"), str):
@@ -251,7 +253,7 @@ class MotivoAdminSchema(Schema):
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos = data.copy()
         if isinstance(datos.get("motivo_admin"), str):

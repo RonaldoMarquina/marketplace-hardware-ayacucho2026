@@ -412,8 +412,7 @@ const Editar = () => {
       const currentSpecs = sanitizeSpecsPayload(specs)
 
       ;['titulo', 'categoria', 'subcategoria', 'condicion', 'precio', 'descripcion'].forEach((field) => {
-        const originalValue =
-          field === 'precio' ? String(originalAnuncio[field] ?? '') : String(originalAnuncio[field] ?? '')
+        const originalValue = String(originalAnuncio[field] ?? '')
         const currentValue = String(form[field] ?? '')
 
         if (currentValue !== originalValue) {

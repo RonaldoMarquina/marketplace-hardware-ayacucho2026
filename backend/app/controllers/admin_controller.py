@@ -7,6 +7,10 @@ from app.schemas.usuario_schema import AdminUsuariosFiltroSchema, MotivoAdminUsu
 from app.services.anuncio_service import AnuncioService
 from app.services.admin_user_service import AdminUserService
 
+INVALID_FIELDS_MESSAGE = "Campos invalidos."
+INTERNAL_ERROR_MESSAGE = "Error interno del servidor."
+LIMIT_EXCEEDED_MESSAGE = "El parametro limit no puede superar 50."
+
 
 def listar_anuncios_reportados_controller():
     try:
@@ -25,7 +29,7 @@ def listar_anuncios_reportados_controller():
             "success": False,
             "data": {},
             "error": "VALIDATION_ERROR",
-            "message": "El parametro limit no puede superar 50.",
+            "message": LIMIT_EXCEEDED_MESSAGE,
         }), 400
 
     try:
@@ -36,7 +40,7 @@ def listar_anuncios_reportados_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
@@ -75,7 +79,7 @@ def historial_moderacion_controller():
             "success": False,
             "data": {},
             "error": "VALIDATION_ERROR",
-            "message": "El parametro limit no puede superar 50.",
+            "message": LIMIT_EXCEEDED_MESSAGE,
         }), 400
 
     try:
@@ -86,7 +90,7 @@ def historial_moderacion_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
@@ -110,7 +114,7 @@ def listar_usuarios_admin_controller():
             "success": False,
             "data": {},
             "error": "VALIDATION_ERROR",
-            "message": "El parametro limit no puede superar 50.",
+            "message": LIMIT_EXCEEDED_MESSAGE,
         }), 400
 
     try:
@@ -133,7 +137,7 @@ def listar_usuarios_admin_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
@@ -156,7 +160,7 @@ def detalle_usuario_admin_controller(usuario_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
@@ -180,7 +184,7 @@ def activar_usuario_admin_controller(usuario_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
@@ -224,7 +228,7 @@ def _ejecutar_accion_moderacion(anuncio_id, accion_service, log_message):
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), 400
     except ValueError as error:
         return jsonify({
@@ -239,7 +243,7 @@ def _ejecutar_accion_moderacion(anuncio_id, accion_service, log_message):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)
@@ -259,7 +263,7 @@ def _ejecutar_accion_admin_usuario(usuario_id, accion_service, log_message):
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), 400
     except ValueError as error:
         return jsonify({
@@ -274,7 +278,7 @@ def _ejecutar_accion_admin_usuario(usuario_id, accion_service, log_message):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_admin_response(respuesta, success_status=200)

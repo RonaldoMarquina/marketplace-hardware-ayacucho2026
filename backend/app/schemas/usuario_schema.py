@@ -7,6 +7,11 @@ PASSWORD_COMPLEXITY_REGEX = (
 PASSWORD_COMPLEXITY_MESSAGE = (
     "La contrasena debe tener al menos 8 caracteres, una mayuscula, un numero y un caracter especial."
 )
+JSON_BODY_REQUIRED_MESSAGE = "El cuerpo de la solicitud debe ser JSON."
+PHONE_FORMAT_MESSAGE = "El telefono debe tener exactamente 9 digitos numericos."
+EMAIL_REQUIRED_MESSAGE = "El correo es obligatorio."
+EMAIL_INVALID_MESSAGE = "El correo no tiene un formato valido."
+PASSWORD_REQUIRED_MESSAGE = "El password es obligatorio."
 
 
 class RegistroUsuarioSchema(Schema):
@@ -24,8 +29,8 @@ class RegistroUsuarioSchema(Schema):
         required=True,
         validate=validate.Length(max=150),
         error_messages={
-            "required": "El correo es obligatorio.",
-            "invalid": "El correo no tiene un formato valido.",
+            "required": EMAIL_REQUIRED_MESSAGE,
+            "invalid": EMAIL_INVALID_MESSAGE,
         },
     )
     # La contrasena debe tener caracteres especiales, mayusculas y minimo 8 caracteres.
@@ -36,14 +41,14 @@ class RegistroUsuarioSchema(Schema):
             error=PASSWORD_COMPLEXITY_MESSAGE,
         ),
         load_only=True,
-        error_messages={"required": "El password es obligatorio."},
+        error_messages={"required": PASSWORD_REQUIRED_MESSAGE},
     )
 
     telefono = fields.String(
         required=True,
         validate=validate.Regexp(
             r"^\d{9}$",
-            error="El telefono debe tener exactamente 9 digitos numericos.",
+            error=PHONE_FORMAT_MESSAGE,
         ),
         error_messages={"required": "El telefono es obligatorio."},
     )
@@ -53,7 +58,7 @@ class RegistroUsuarioSchema(Schema):
         # Normalizar aqui evita duplicar limpieza en controllers/services.
         # El correo se guarda en minusculas para hacer consistente la busqueda.
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos_normalizados = data.copy()
         for campo in ("nombre", "correo", "password", "telefono"):
@@ -70,9 +75,7 @@ class RegistroUsuarioSchema(Schema):
         # La HU-01 exige exactamente 9 digitos; no aceptamos espacios,
         # prefijos ni separadores porque el dato debe persistirse limpio.
         if not value.isdigit() or len(value) != 9:
-            raise ValidationError(
-                "El telefono debe tener exactamente 9 digitos numericos."
-            )
+            raise ValidationError(PHONE_FORMAT_MESSAGE)
 
 
 class LoginUsuarioSchema(Schema):
@@ -81,15 +84,15 @@ class LoginUsuarioSchema(Schema):
     correo = fields.Email(
         required=True,
         error_messages={
-            "required": "El correo es obligatorio.",
-            "invalid": "El correo no tiene un formato valido.",
+            "required": EMAIL_REQUIRED_MESSAGE,
+            "invalid": EMAIL_INVALID_MESSAGE,
         },
     )
     password = fields.String(
         required=True,
         validate=validate.Length(min=1),
         load_only=True,
-        error_messages={"required": "El password es obligatorio."},
+        error_messages={"required": PASSWORD_REQUIRED_MESSAGE},
     )
 
     @pre_load
@@ -97,7 +100,7 @@ class LoginUsuarioSchema(Schema):
         # En login solo normalizamos correo y espacios externos. La verificacion
         # real de credenciales queda en el service, no en el controller.
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos_normalizados = data.copy()
         for campo in ("correo", "password"):
@@ -114,15 +117,15 @@ class ForgotPasswordSchema(Schema):
     correo = fields.Email(
         required=True,
         error_messages={
-            "required": "El correo es obligatorio.",
-            "invalid": "El correo no tiene un formato valido.",
+            "required": EMAIL_REQUIRED_MESSAGE,
+            "invalid": EMAIL_INVALID_MESSAGE,
         },
     )
 
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos = data.copy()
         if isinstance(datos.get("correo"), str):
@@ -143,13 +146,13 @@ class ResetPasswordSchema(Schema):
             error=PASSWORD_COMPLEXITY_MESSAGE,
         ),
         load_only=True,
-        error_messages={"required": "El password es obligatorio."},
+        error_messages={"required": PASSWORD_REQUIRED_MESSAGE},
     )
 
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos = data.copy()
         for campo in ("token", "password"):
@@ -186,7 +189,7 @@ class ActualizarPerfilSchema(Schema):
         allow_none=False,
         validate=validate.Regexp(
             r"^\d{9}$",
-            error="El telefono debe tener exactamente 9 digitos numericos.",
+            error=PHONE_FORMAT_MESSAGE,
         ),
     )
     nombre_comercial = fields.String(
@@ -203,7 +206,7 @@ class ActualizarPerfilSchema(Schema):
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos = data.copy()
         for campo in ("nombre", "telefono", "nombre_comercial", "direccion"):
@@ -257,7 +260,7 @@ class MotivoAdminUsuarioSchema(Schema):
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
         if not isinstance(data, dict):
-            raise ValidationError("El cuerpo de la solicitud debe ser JSON.")
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
 
         datos = data.copy()
         if isinstance(datos.get("motivo"), str):

@@ -46,4 +46,3 @@ class Reporte(db.Model):
         server_default=db.func.current_timestamp(),
         index=True,
     )
-

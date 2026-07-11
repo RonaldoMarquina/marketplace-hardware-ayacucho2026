@@ -8,6 +8,9 @@ from app.schemas.usuario_schema import ActualizarPerfilSchema, HistorialTransacc
 from app.services.transaccion_service import TransaccionService
 from app.services.usuario_service import UsuarioService
 
+INVALID_FIELDS_MESSAGE = "Campos invalidos."
+INTERNAL_ERROR_MESSAGE = "Error interno del servidor."
+
 
 def perfil_publico_usuario_controller(usuario_id):
     try:
@@ -26,7 +29,7 @@ def perfil_publico_usuario_controller(usuario_id):
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
@@ -76,7 +79,7 @@ def historial_transacciones_me_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
@@ -92,7 +95,7 @@ def panel_usuario_me_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
@@ -111,7 +114,7 @@ def actualizar_perfil_me_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), 422
     except Exception:
         current_app.logger.exception("Error inesperado al actualizar perfil del usuario")
@@ -119,7 +122,7 @@ def actualizar_perfil_me_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)

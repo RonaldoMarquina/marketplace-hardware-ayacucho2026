@@ -1,73 +1,57 @@
-# SECURITY.md — HardwareAyacucho
+# Seguridad - HardwareAyacucho
 
-## Autenticación
+## Autenticacion y autorizacion
 
-- JWT HS256, vigencia 8h, secret en `.env` como `JWT_SECRET`.
-- Sin refresh token en MVP.
-- `jwt_required()` en todos los endpoints protegidos.
-- Rutas `/admin/*`: `jwt_required()` → `check_admin_role()` encadenados.
+- JWT para rutas protegidas
+- control de rol `ADMIN` en rutas administrativas
+- identidad del usuario obtenida desde el token, no desde el body
 
 ## Contraseñas
 
-- bcrypt con salt=10.
-- Nunca retornar ni loggear `password_hash`.
-- Mensaje idéntico para correo inexistente y password incorrecto → previene enumeración de usuarios.
+- hash con bcrypt
+- nunca retornar `password_hash`
+- mensajes de error consistentes para evitar enumeracion de usuarios
 
-## Rate Limiting
+## Tokens
 
-| Endpoint | Límite | Bloqueo |
-|----------|--------|---------|
-| `POST /auth/login` | 5 intentos fallidos por IP | 15 min |
-| `POST /auth/verify-email/resend` | 3 requests por IP/usuario | 15 min |
+- verificacion y recuperacion con tokens de un solo uso
+- expiracion controlada por tipo de token
+- invalidacion de tokens anteriores cuando el flujo lo requiere
 
-## Tokens de Verificación
+## Rate limiting
 
-- Generados con `secrets.token_hex(32)` (64 chars hex).
-- Vigencia 24h, un solo uso, un token activo por usuario.
-- Índice en columna `token` para búsqueda eficiente.
+Se aplican limites en flujos sensibles como:
 
-## Archivos Subidos
+- login
+- reenvio de verificacion
 
-- Validar mimetype real, no solo extensión.
-- Nombre siempre reemplazado por `{uuid}-{timestamp}.{ext}`.
-- Ruta guardada en BD como relativa, nunca absoluta.
-- `/uploads/` en `.gitignore`.
-- Límites: 2MB imágenes de anuncio / 5MB documento de tienda.
+## Seguridad de archivos
 
-## Queries SQL
+- validacion de tipo real de archivo
+- rutas almacenadas como relativas
+- nombres internos controlados por el sistema
+- limites de tamano segun modulo
 
-- Siempre prepared statements o SQLAlchemy ORM.
-- Nunca interpolación de strings en queries.
-- Escapar `%`, `_`, `\` antes de queries LIKE (campo `q`).
-- `spec_key` solo alfanumérico + guion bajo (validar con regex).
+## Seguridad de consultas
 
-## Datos Sensibles
+- acceso a datos via SQLAlchemy o consultas parametrizadas
+- sin interpolacion insegura de strings en SQL
+- validacion estricta de parametros usados para filtros
 
-- `password_hash` nunca en ninguna respuesta.
-- `telefono` del vendedor solo visible con JWT válido (HU-11).
-- `usuario_id` siempre extraído del JWT, nunca del body.
-- No exponer stack traces en producción — solo loggear internamente.
+## Configuracion sensible
 
-## Variables de Entorno (`.env`)
+- secrets y credenciales fuera del repositorio
+- uso de `.env` para desarrollo
+- `.env` excluido del control de versiones
 
-```
-JWT_SECRET=
-DB_HOST=
-DB_PORT=
-DB_NAME=
-DB_USER=
-DB_PASSWORD=
-MAIL_SERVER=
-MAIL_USER=
-MAIL_PASSWORD=
-FRONTEND_URL=
-```
+## Buenas practicas vigentes
 
-- `.env` en `.gitignore`.
-- `.env.example` en el repo sin valores reales.
+- no exponer trazas internas en respuestas
+- proteger endpoints administrativos con autenticacion y rol
+- restringir acceso a datos sensibles segun contexto del usuario
+- mantener auditoria de acciones de moderacion y administracion
 
-## Borrado Lógico
+## Nota
 
-- Nunca ejecutar `DELETE` en BD.
-- Estados: `INACTIVO`, `VENDIDO`, `BLOQUEADO` ocultan el recurso.
-- `moderacion_log` es auditoría permanente — `ON DELETE RESTRICT`.
+La seguridad operativa debe revisarse junto con las pruebas, SonarQube y la
+configuracion real del entorno antes de despliegue.

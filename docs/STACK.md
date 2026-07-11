@@ -1,133 +1,78 @@
-# STACK.md
-
-# STACK.md — HardwareAyacucho
+# STACK.md - HardwareAyacucho
 
 ## Frontend
 
-- React.js + React Router  
-- Tailwind CSS  
-- Axios  
+- React
+- React Router
+- Vite
+- Tailwind CSS
+- Axios
 
 ## Backend
 
-- Python 3.x + Flask  
-- SQLAlchemy + Flask-Migrate  
-- Flask-JWT-Extended  
-- Flask-CORS  
-- Marshmallow  
-- bcrypt (cost=10)  
+- Python 3.14
+- Flask
+- SQLAlchemy
+- Flask-Migrate
+- Flask-JWT-Extended
+- Marshmallow
+- Flask-CORS
+- Flask-WTF
+- bcrypt
 
 ## Base de Datos
 
-- MySQL — charset utf8mb4_unicode_ci  
+- MySQL
+- Charset `utf8mb4`
+- Collation `utf8mb4_unicode_ci`
 
-## Autenticación
+## Calidad y Validacion
 
-- JWT HS256 — vigencia 8h — secret en `.env`  
+- PyTest
+- pytest-cov
+- Pylint
+- SonarQube
+- Postman
 
-## Testing
+## Arquitectura
 
-- PyTest  
-- Postman  
+Arquitectura por capas:
 
-## Calidad
-
-- Pylint  
-- Bandit  
-
-# Arquitectura
-
-Arquitectura por capas.
-
-```
+```text
 Frontend
-      │
- REST API
-      │
-Routes
-      │
-Controllers
-      │
-Services
-      │
-Repositories
-      │
-Models
-      │
-MySQL
+  -> API REST
+  -> Routes
+  -> Controllers
+  -> Services
+  -> Repositories
+  -> Models
+  -> MySQL
 ```
 
-# Estructura del Backend
+## Convenciones clave
 
-```
-backend/
-│
-├── app/
-│   ├── routes/
-│   ├── controllers/
-│   ├── services/
-│   ├── repositories/
-│   ├── models/
-│   ├── schemas/
-│   ├── validators/
-│   ├── middleware/
-│   ├── utils/
-│   ├── config/
-│   └── tests/
-│
-├── migrations/
-├── uploads/
-├── requirements.txt
-└── run.py
-```
+- Backend Python: `snake_case`
+- Clases: `PascalCase`
+- JSON de la API: `snake_case` salvo decisiones heredadas del frontend cuando
+  aplique
+- Endpoints REST bajo `/api/v1`
+- Secrets y configuracion sensible via `.env`
 
-# Principios
+## Variables de entorno base
 
-- Arquitectura REST.
-- Separación por capas.
-- Código reutilizable.
-- Responsabilidad única.
-- Baja dependencia entre módulos.
-- Validaciones centralizadas.
-- Manejo centralizado de errores.
-
-# Convenciones
-
-- Backend: snake_case
-- Clases: PascalCase
-- JSON: camelCase
-- Endpoints: kebab-case
-
-# Dependencias Obligatorias
-
-- Flask
-- SQLAlchemy
-- Flask-JWT-Extended
-- Flask-Migrate
-- Flask-CORS
-- Marshmallow
-- bcrypt
-- PyMySQL
-- python-dotenv
-- Pillow
-
-# Variables de Entorno
-
-```
+```text
 SECRET_KEY
 JWT_SECRET_KEY
 DATABASE_URL
 UPLOAD_FOLDER
 MAX_CONTENT_LENGTH
+FRONTEND_URL
 ```
 
-# Restricciones
+## Restricciones tecnicas
 
-- No modificar la arquitectura.
-- No acceder directamente a la base de datos desde los controladores.
-- Toda lógica de negocio pertenece a Services.
-- Toda consulta a la base de datos pertenece a Repositories.
-- Toda validación pertenece a Validators o Schemas.
-- Toda respuesta debe ser JSON.
-- Toda funcionalidad nueva debe incluir pruebas unitarias.
-```
+- La logica de negocio vive en `services/`
+- Los controladores no deben consultar la base de datos directamente
+- La persistencia vive en `repositories/` y modelos ORM
+- Toda respuesta de API debe ser JSON
+- Toda funcionalidad nueva debe incluir pruebas automatizadas

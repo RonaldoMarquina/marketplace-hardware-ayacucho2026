@@ -5,6 +5,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.models.admin_log import AdminLog
 from app.repositories.usuario_repository import UsuarioRepository
 
+USER_NOT_FOUND_MESSAGE = "Usuario no encontrado."
+
 
 class AdminUserService:
     @staticmethod
@@ -52,7 +54,7 @@ class AdminUserService:
     def obtener_detalle_usuario(usuario_id):
         registro = UsuarioRepository.buscar_usuario_admin_detalle(usuario_id)
         if not registro:
-            return _error_response("NOT_FOUND", "Usuario no encontrado.")
+            return _error_response("NOT_FOUND", USER_NOT_FOUND_MESSAGE)
 
         usuario, tienda = registro
         historial = UsuarioRepository.listar_historial_admin_usuario(usuario_id, limit=5)
@@ -107,7 +109,7 @@ class AdminUserService:
     def activar_usuario(usuario_id, admin_id):
         registro = UsuarioRepository.buscar_usuario_admin_detalle(usuario_id)
         if not registro:
-            return _error_response("NOT_FOUND", "Usuario no encontrado.")
+            return _error_response("NOT_FOUND", USER_NOT_FOUND_MESSAGE)
         usuario, tienda = registro
         if usuario.estado != "EN_REVISION":
             return _error_response("CONFLICT", "El usuario no se encuentra en revision.")
@@ -148,7 +150,7 @@ class AdminUserService:
     def rechazar_tienda(usuario_id, admin_id, motivo):
         registro = UsuarioRepository.buscar_usuario_admin_detalle(usuario_id)
         if not registro:
-            return _error_response("NOT_FOUND", "Usuario no encontrado.")
+            return _error_response("NOT_FOUND", USER_NOT_FOUND_MESSAGE)
         usuario, tienda = registro
         if usuario.estado != "EN_REVISION":
             return _error_response("CONFLICT", "El usuario no se encuentra en revision.")
@@ -190,7 +192,7 @@ class AdminUserService:
     def bloquear_usuario(usuario_id, admin_id, motivo):
         registro = UsuarioRepository.buscar_usuario_admin_detalle(usuario_id)
         if not registro:
-            return _error_response("NOT_FOUND", "Usuario no encontrado.")
+            return _error_response("NOT_FOUND", USER_NOT_FOUND_MESSAGE)
         usuario, _ = registro
         if usuario.estado != "ACTIVO":
             return _error_response("CONFLICT", "Solo se puede bloquear un usuario activo.")
@@ -234,7 +236,7 @@ class AdminUserService:
     def desbloquear_usuario(usuario_id, admin_id, motivo):
         registro = UsuarioRepository.buscar_usuario_admin_detalle(usuario_id)
         if not registro:
-            return _error_response("NOT_FOUND", "Usuario no encontrado.")
+            return _error_response("NOT_FOUND", USER_NOT_FOUND_MESSAGE)
         usuario, _ = registro
         if usuario.estado != "BLOQUEADO":
             return _error_response("CONFLICT", "Solo se puede desbloquear un usuario bloqueado.")

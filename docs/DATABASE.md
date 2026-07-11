@@ -1,146 +1,58 @@
-# DATABASE.md
-
 # Base de Datos
 
-Motor: MySQL  
-ORM: SQLAlchemy  
+## Fuente de verdad
 
-# Esquema General
+El archivo fuente del esquema es `docs/database.sql`. Este documento solo
+resume la estructura funcional y las reglas principales para facilitar lectura
+humana.
 
-- usuarios
-- tiendas
-- tokens_verificacion
-- anuncios
-- imagenes_anuncio
-- reportes
-- moderacion_log
-- contactos_log
+## Motor y acceso
 
-# Relaciones
+- Motor: MySQL
+- ORM principal del backend: SQLAlchemy
+- Charset: `utf8mb4`
+- Collation: `utf8mb4_unicode_ci`
 
-```
-usuarios 1 ─── N anuncios
-usuarios 1 ─── 1 tiendas
-usuarios 1 ─── N reportes
-usuarios 1 ─── N contactos_log
+## Tablas principales
 
-anuncios 1 ─── N imagenes_anuncio
-anuncios 1 ─── N reportes
-anuncios 1 ─── N moderacion_log
-anuncios 1 ─── N contactos_log
+- `usuarios`
+- `tiendas`
+- `tokens_verificacion`
+- `anuncios`
+- `media_anuncio`
+- `reportes`
+- `moderacion_log`
+- `admin_log`
+- `transacciones`
+- `calificaciones`
+- `contactos_log`
 
-usuarios 1 ─── N tokens_verificacion
-```
+## Relaciones clave
 
-# Reglas Generales
+- un `usuario` puede tener muchos `anuncios`
+- un `usuario` puede tener una `tienda`
+- un `anuncio` puede tener multiples registros en `media_anuncio`
+- un `anuncio` puede generar `reportes`, `contactos_log` y `transacciones`
+- una `transaccion` puede generar `calificaciones`
 
-- PK: id (INT UNSIGNED AUTO_INCREMENT)
-- FK: *_id
-- Fechas: created_at, updated_at
-- JSON permitido en especificaciones de anuncios
-- Soft delete solo cuando aplique (estado o deleted_at)
+## Reglas generales
 
-# Tabla: usuarios
+- claves primarias enteras autoincrementales
+- claves foraneas con sufijo `_id`
+- fechas de auditoria con `created_at` y, cuando aplica, `updated_at`
+- uso de estados para moderacion, activacion y ciclo de vida
+- `especificaciones` de anuncios almacenadas en JSON
 
-- id
-- nombre
-- correo UNIQUE
-- password_hash (bcrypt)
-- telefono (9 dígitos)
-- rol:
-  - USER_ESTANDAR
-  - TIENDA_VERIFICADA
-  - ADMIN
-- estado:
-  - PENDIENTE_VERIFICACION
-  - ACTIVO
-  - BLOQUEADO
+## Reglas de negocio relevantes
 
-# Tabla: tiendas
+- correos, telefonos, RUC y tokens sensibles usan restricciones de unicidad
+- un anuncio puede pasar por estados como `ACTIVO`, `INACTIVO`, `VENDIDO` o
+  `BLOQUEADO`
+- los flujos de verificacion y recuperacion usan `tokens_verificacion`
+- la moderacion administrativa queda auditada en `moderacion_log` y `admin_log`
+- las transacciones y calificaciones soportan reputacion de comprador y vendedor
 
-- usuario_id UNIQUE
-- ruc UNIQUE (11 dígitos)
-- estado:
-  - EN_REVISION
-  - ACTIVO
-  - RECHAZADO
-- documento_identidad (UUID file path)
+## Recomendacion
 
-# Tabla: anuncios
-
-- usuario_id FK
-- titulo
-- descripcion
-- categoria (ENUM hardware)
-- condicion (NUEVO | USADO | etc.)
-- precio > 0
-- especificaciones JSON
-- estado (ACTIVO | INACTIVO | VENDIDO | BLOQUEADO)
-
-# Tabla: imagenes_anuncio
-
-- anuncio_id FK
-- ruta_relativa
-- es_principal
-- orden
-
-# Tabla: reportes
-
-- anuncio_id FK
-- usuario_id FK
-- motivo (FRAUDE | OTRO | etc.)
-- estado (PENDIENTE | REVISADO)
-
-Regla:
-- Un usuario no puede duplicar reporte PENDIENTE sobre el mismo anuncio.
-
-# Tabla: moderacion_log
-
-- anuncio_id FK
-- admin_id FK
-- accion (BLOQUEADO | DESBLOQUEADO)
-- motivo_admin
-
-Regla:
-- Solo auditoría, no eliminación.
-
-# Tabla: contactos_log
-
-- comprador_id FK
-- anuncio_id FK
-- created_at
-
-Regla:
-- Registro de interacción, no eliminar.
-
-# Tabla: tokens_verificacion
-
-- usuario_id FK
-- token (64 chars)
-- tipo: EMAIL_VERIFICATION
-- expira_en
-- usado
-
-# Índices Clave
-
-- usuarios.correo UNIQUE
-- tiendas.ruc UNIQUE
-- anuncios.estado
-- anuncios.categoria
-- anuncios.created_at
-- reportes.estado
-- tokens_verificacion.token
-
-# Integridad
-
-- Todas las FK deben respetarse.
-- No registros huérfanos.
-- Transacciones obligatorias en operaciones múltiples.
-
-# Reglas de Negocio Globales
-
-- No eliminar datos críticos físicamente.
-- Usar estados en lugar de DELETE.
-- Password nunca se expone.
-- Archivos siempre por UUID.
-- Consultas siempre parametrizadas.
+Cuando exista una diferencia entre este resumen y `database.sql`, se debe tomar
+como valido `database.sql`.

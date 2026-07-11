@@ -4,6 +4,12 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.pytest_cache_local/
+.pytest_tmp/
+backend/.pytest_tmp/
+backend/.pytest_cache/
+backend/.pytest_cache_local/
+.scannerwork/
 
 # Virtual environments
 .venv/
@@ -36,3 +42,6 @@ Thumbs.db
 !.vscode/extensions.json
 *.suo
 *.swp
+
+# Local docs helpers
+~$*.docx

@@ -1,105 +1,93 @@
-# API_GUIDE.md
-
-# API REST
+# API Guide
 
 ## Base URL
 
-```
+```text
 /api/v1
 ```
 
-# Respuesta Exitosa
+## Autenticacion
+
+Las rutas protegidas usan JWT en el encabezado:
+
+```text
+Authorization: Bearer <token>
+```
+
+## Respuesta exitosa
 
 ```json
 {
   "success": true,
-  "message": "Operación realizada correctamente.",
+  "message": "Operacion realizada correctamente.",
   "data": {}
 }
 ```
 
-# Respuesta de Error
+## Respuesta de error
 
 ```json
 {
   "success": false,
   "error": "ERROR_CODE",
-  "message": "Descripción del error."
+  "message": "Descripcion del error."
 }
 ```
 
-# Códigos HTTP
+## Codigos HTTP frecuentes
 
-| Código | Uso |
-|---------|-----|
-|200|Consulta|
-|201|Creación|
-|204|Eliminación|
-|400|Solicitud inválida|
-|401|No autenticado|
-|403|Sin permisos|
-|404|No encontrado|
-|409|Conflicto|
-|415|Archivo inválido|
-|422|Validación|
-|500|Error interno|
+| Codigo | Uso |
+|--------|-----|
+| 200 | Consulta o actualizacion correcta |
+| 201 | Recurso creado |
+| 204 | Eliminacion logica o respuesta sin cuerpo |
+| 400 | Solicitud invalida |
+| 401 | No autenticado |
+| 403 | Sin permisos |
+| 404 | Recurso no encontrado |
+| 409 | Conflicto de estado o duplicidad |
+| 415 | Tipo de archivo no permitido |
+| 422 | Error de validacion |
+| 500 | Error interno |
 
-# Autenticación
+## Reglas REST
 
-```
-Authorization: Bearer <token>
-```
+- usar el metodo HTTP correcto
+- validar datos antes de procesarlos
+- mantener respuestas JSON uniformes
+- no exponer informacion sensible
+- centralizar el manejo de errores
 
-JWT obligatorio en rutas protegidas.
+## Patrones comunes
 
-# Endpoints REST
-
-```
+```text
 GET    /recurso
 GET    /recurso/{id}
 POST   /recurso
-PUT    /recurso/{id}
 PATCH  /recurso/{id}
 DELETE /recurso/{id}
 ```
 
-# Paginación
+## Paginacion y filtros
 
-```
+```text
 ?page=1&limit=20
-```
-
-# Ordenamiento
-
-```
 ?sort=campo&order=asc
-```
-
-# Filtros
-
-```
 ?campo=valor
 ```
 
-Se pueden combinar múltiples filtros.
+Se pueden combinar multiples filtros en endpoints de busqueda.
 
-# Archivos
+## Archivos
 
-- multipart/form-data
-- JPG / PNG
-- Máximo 5 MB
+- `multipart/form-data` para media y documentos
+- validacion de tipo real de archivo
+- limites segun modulo
+- imagenes de anuncios: `JPG`, `JPEG`, `PNG`, `WEBP`, `AVIF`
+- video de anuncio: `MP4`
 
-# Respuestas
+## Nota
 
-- JSON
-- UTF-8
-- camelCase
-
-# Reglas
-
-- Usar métodos HTTP correctos.
-- Validar datos antes de procesarlos.
-- Consultas parametrizadas.
-- Manejo centralizado de errores.
-- No exponer información sensible.
-- Mantener compatibilidad REST.
+Este documento resume reglas generales de la API. El detalle funcional por
+modulo debe mantenerse alineado con las historias de usuario, las pruebas y el
+codigo fuente.

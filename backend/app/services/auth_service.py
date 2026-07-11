@@ -20,6 +20,14 @@ from app.utils.file_validation import (
 )
 
 
+def _resolve_bcrypt_rounds():
+    configured_rounds = current_app.config.get("BCRYPT_ROUNDS")
+    if configured_rounds is None:
+        configured_rounds = 12
+
+    return max(int(configured_rounds), 12)
+
+
 class AuthService:
     _login_attempts = {}
     _max_login_attempts = 5
@@ -52,7 +60,7 @@ class AuthService:
 
         password_hash = bcrypt.hashpw(
             data["password"].encode("utf-8"),
-            bcrypt.gensalt(rounds=10),
+            bcrypt.gensalt(rounds=_resolve_bcrypt_rounds()),
         ).decode("utf-8")
 
         usuario = Usuario(
@@ -121,7 +129,7 @@ class AuthService:
 
         password_hash = bcrypt.hashpw(
             data["password"].encode("utf-8"),
-            bcrypt.gensalt(rounds=10),
+            bcrypt.gensalt(rounds=_resolve_bcrypt_rounds()),
         ).decode("utf-8")
 
         usuario = Usuario(
@@ -496,7 +504,7 @@ class AuthService:
         try:
             usuario.password_hash = bcrypt.hashpw(
                 data["password"].encode("utf-8"),
-                bcrypt.gensalt(rounds=10),
+                bcrypt.gensalt(rounds=_resolve_bcrypt_rounds()),
             ).decode("utf-8")
             usuario.intentos_fallidos = 0
             usuario.bloqueado_hasta = None

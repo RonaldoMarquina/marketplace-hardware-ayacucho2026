@@ -1,6 +1,7 @@
 [run]
 source = app
 branch = True
+relative_files = True
 omit =
     tests/*
     */__pycache__/*

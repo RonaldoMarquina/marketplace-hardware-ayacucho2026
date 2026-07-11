@@ -10,6 +10,9 @@ from app.schemas.usuario_schema import (
 )
 from app.services.auth_service import AuthService
 
+INVALID_FIELDS_MESSAGE = "Campos invalidos."
+INTERNAL_ERROR_MESSAGE = "Error interno del servidor."
+
 
 class ReenvioVerificacionSchema(Schema):
     correo = fields.Email(required=True)
@@ -27,7 +30,7 @@ def registrar_usuario_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), status_code
 
     try:
@@ -38,7 +41,7 @@ def registrar_usuario_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     if respuesta.get("success"):
@@ -69,7 +72,7 @@ def registrar_tienda_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), status_code
 
     documento_identidad = request.files.get("documento_identidad")
@@ -85,7 +88,7 @@ def registrar_tienda_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     if respuesta.get("success"):
@@ -115,7 +118,7 @@ def login_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), status_code
 
     try:
@@ -126,7 +129,7 @@ def login_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     status_by_error = {
@@ -158,7 +161,7 @@ def verificar_correo_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     status_by_error = {
@@ -181,7 +184,7 @@ def reenviar_verificacion_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), 400
 
     try:
@@ -192,7 +195,7 @@ def reenviar_verificacion_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     status_by_error = {
@@ -216,7 +219,7 @@ def forgot_password_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), status_code
 
     try:
@@ -230,7 +233,7 @@ def forgot_password_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     status_by_error = {
@@ -252,7 +255,7 @@ def reset_password_controller():
             "success": False,
             "data": error.messages,
             "error": "VALIDATION_ERROR",
-            "message": "Campos invalidos.",
+            "message": INVALID_FIELDS_MESSAGE,
         }), status_code
 
     try:
@@ -266,7 +269,7 @@ def reset_password_controller():
             "success": False,
             "data": {},
             "error": "INTERNAL_ERROR",
-            "message": "Error interno del servidor.",
+            "message": INTERNAL_ERROR_MESSAGE,
         }), 500
 
     status_by_error = {

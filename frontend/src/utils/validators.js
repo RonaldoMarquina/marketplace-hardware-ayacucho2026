@@ -1,4 +1,32 @@
-export const isValidEmail = (correo) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)
+export const isValidEmail = (correo) => {
+  if (typeof correo !== 'string') {
+    return false
+  }
+
+  const email = correo.trim()
+  if (!email || email.includes(' ')) {
+    return false
+  }
+
+  const atIndex = email.indexOf('@')
+  if (atIndex <= 0 || atIndex !== email.lastIndexOf('@')) {
+    return false
+  }
+
+  const localPart = email.slice(0, atIndex)
+  const domainPart = email.slice(atIndex + 1)
+
+  if (!localPart || !domainPart || domainPart.startsWith('.') || domainPart.endsWith('.')) {
+    return false
+  }
+
+  const domainLabels = domainPart.split('.')
+  if (domainLabels.length < 2) {
+    return false
+  }
+
+  return domainLabels.every((label) => label.length > 0)
+}
 
 export const isValidPassword = (password) =>
   /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(password)

@@ -1,143 +1,165 @@
-# TESTING.md - HardwareAyacucho
+# Testing - HardwareAyacucho
 
-## Herramientas
+## Objetivo
 
-- `PyTest`: pruebas automatizadas del backend
-- `pytest-cov`: cobertura de codigo
-- `Postman`: validacion manual de endpoints REST
+Este documento resume como se valida el backend del proyecto a nivel funcional,
+de cobertura y de calidad estatica.
 
-## Estructura actual de pruebas
+## Herramientas usadas
+
+- `PyTest`
+- `pytest-cov`
+- `Pylint`
+- `Bandit`
+- `Postman`
+- `SonarQube`
+
+## Estructura de pruebas
 
 ```text
 backend/tests/
-|-- conftest.py
-|-- integration/
-|   |-- test_admin_usuarios.py
-|   |-- test_busqueda_anuncios.py
-|   |-- test_calificacion_comprador.py
-|   |-- test_calificacion_vendedor.py
-|   |-- test_contacto_anuncio.py
-|   |-- test_db.py
-|   |-- test_detalle_anuncio.py
-|   |-- test_edicion_anuncio.py
-|   |-- test_feed_anuncios.py
-|   |-- test_historial_transacciones.py
-|   |-- test_login.py
-|   |-- test_media_anuncio.py
-|   |-- test_moderacion_anuncios.py
-|   |-- test_panel_usuario.py
-|   |-- test_password_reset.py
-|   |-- test_perfil_usuario.py
-|   |-- test_publicar_anuncio.py
-|   |-- test_registro_tienda.py
-|   |-- test_registro_usuario.py
-|   `-- test_verificacion_email.py
-`-- unit/
-    |-- test_anuncio_schema_unit.py
-    `-- test_anuncio_service_helpers_unit.py
+  conftest.py
+  integration/
+  unit/
 ```
 
-## Clasificacion
+## Tipos de prueba
 
-### Pruebas unitarias
+### Unitarias
 
-Validan funciones puras o helpers sin depender de base de datos, cliente Flask ni endpoints HTTP.
+Se concentran en funciones puras, helpers y validaciones puntuales.
 
 Ejemplos:
+
 - normalizacion de taxonomias
-- validacion de decimales
 - merge de especificaciones
-- sanitizacion de texto
+- validacion de decimales
 - reglas auxiliares del servicio de anuncios
 
-### Pruebas de integracion
+### Integracion
 
-Validan el flujo entre controladores, servicios, modelos, base de datos en memoria y cliente de prueba Flask.
+Validan el comportamiento de endpoints y flujos del sistema usando cliente Flask
+de pruebas y base de datos de testing.
 
 Ejemplos:
-- login y registro
-- publicacion y busqueda de anuncios
-- contacto por WhatsApp
-- moderacion administrativa
-- historial, perfil, panel y calificaciones
+
+- autenticacion
+- registro y verificacion
+- publicacion y edicion de anuncios
+- busqueda, detalle y contacto
+- moderacion y administracion
+- perfil, panel, historial y calificaciones
 
 ## Marcadores PyTest
 
-En `backend/pytest.ini` se registran dos marcadores:
+En `backend/pytest.ini` se registran:
 
 - `unit`
 - `integration`
 
-Los tests de `backend/tests/unit` usan `pytest.mark.unit`.
-Los tests de `backend/tests/integration` usan `pytest.mark.integration`.
+Ademas, la configuracion del repositorio fija un `basetemp` local para evitar
+fallos por permisos en el directorio temporal global de Windows.
 
-## Comandos de ejecucion
+## Comandos principales
 
-### Ejecutar todas las pruebas
+### Ejecutar toda la suite
 
 ```bash
 pytest
 ```
 
-### Ejecutar solo pruebas unitarias
+No es necesario pasar `--basetemp` manualmente, porque ya queda resuelto desde
+la configuracion del proyecto.
+
+### Ejecutar unitarias
 
 ```bash
 pytest -m unit
 ```
 
-o por carpeta:
-
-```bash
-pytest tests/unit
-```
-
-### Ejecutar solo pruebas de integracion
+### Ejecutar integracion
 
 ```bash
 pytest -m integration
 ```
 
-o por carpeta:
+## Cobertura
 
-```bash
-pytest tests/integration
-```
+La configuracion vive en `backend/.coveragerc`.
 
-## Cobertura de codigo
-
-El backend incluye configuracion de cobertura en `backend/.coveragerc`.
-
-### Cobertura de toda la suite
+### Cobertura completa
 
 ```bash
 pytest --cov=app --cov-config=.coveragerc --cov-report=term-missing --cov-report=xml
 ```
 
-### Cobertura solo de unitarias
+### Salida esperada
+
+- reporte en consola
+- archivo `coverage.xml` para integracion con SonarQube
+
+## Pylint
+
+El backend incluye configuracion en `backend/.pylintrc`.
+
+### Ejecutar analisis estatico
 
 ```bash
-pytest -m unit --cov=app --cov-config=.coveragerc --cov-report=term-missing
+python -m pylint --rcfile=backend/.pylintrc backend/app backend/run.py
 ```
 
-### Cobertura solo de integracion
+### Que revisa
 
-```bash
-pytest -m integration --cov=app --cov-config=.coveragerc --cov-report=term-missing
-```
+- imports no usados
+- variables no usadas
+- convenciones de nombres
+- complejidad
+- malos olores de codigo
 
-El reporte XML generado (`coverage.xml`) puede usarse luego en herramientas como SonarQube o SonarCloud.
+## Bandit
 
-## Alcance cubierto por PyTest
+Se considera `Bandit` como analisis estatico de seguridad para el backend
+Python. Su incorporacion formal queda prevista para una siguiente etapa de QA y
+hardening del proyecto.
 
-- HU-01 al HU-04: registro, verificacion y autenticacion
-- HU-05 al HU-14: anuncios, media, feed, busqueda, detalle, contacto, moderacion y ventas
-- HU-15 al HU-20: calificaciones, perfil, historial, panel y administracion
+### Alcance esperado
+
+- deteccion de patrones inseguros en codigo Python
+- revision complementaria a `Pylint` y `SonarQube`
+- apoyo para reforzar controles antes de despliegue
+
+## SonarQube
+
+El proyecto usa `sonar-project.properties` para analizar:
+
+- `backend/app`
+- `frontend/src`
+- cobertura del backend desde `backend/coverage.xml`
+
+### Flujo recomendado
+
+1. generar cobertura del backend
+2. volver a la raiz del repositorio
+3. ejecutar `sonar-scanner`
+
+## Cobertura funcional por HU
+
+- HU-01 a HU-04: autenticacion y verificacion
+- HU-05 a HU-14: anuncios, media, busqueda, detalle, contacto y ventas
+- HU-15 a HU-20: calificaciones, perfil, historial, panel y administracion
 - HU-21: recuperacion de contrasena
 
-## Recomendaciones de uso
+## Estado general esperado
 
-- Ejecutar `pytest -m unit` en cambios pequenos de logica interna.
-- Ejecutar `pytest -m integration` antes de cerrar cambios funcionales.
-- Ejecutar cobertura completa antes de entrega o despliegue academico.
-- Mantener nuevas funciones puras cubiertas en `tests/unit`.
-- Mantener nuevos flujos HTTP o de base de datos cubiertos en `tests/integration`.
+- unitarias para logica aislada
+- integracion para flujos principales
+- cobertura exportable para QA
+- analisis estatico complementario con Pylint y SonarQube
+
+## Recomendaciones
+
+- ejecutar `pytest -m unit` durante cambios pequenos
+- ejecutar `pytest -m integration` antes de cerrar cambios funcionales
+- regenerar cobertura antes de analisis en SonarQube
+- mantener nuevas reglas puras en `tests/unit`
+- mantener nuevos endpoints o flujos en `tests/integration`

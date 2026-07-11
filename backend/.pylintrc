@@ -1,0 +1,28 @@
+[MASTER]
+persistent=no
+ignore=.pytest_cache,.pytest_cache_local,__pycache__
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    import-outside-toplevel,
+    too-few-public-methods
+
+[DESIGN]
+max-args=8
+max-attributes=12
+max-locals=25
+
+[SIMILARITIES]
+min-similarity-lines=10
+ignore-comments=yes
+ignore-docstrings=yes
+ignore-imports=yes
+
+[FORMAT]
+max-line-length=100
+
+[TYPECHECK]
+ignored-modules=flask_sqlalchemy
