@@ -17,6 +17,7 @@
 - verificacion y recuperacion con tokens de un solo uso
 - expiracion controlada por tipo de token
 - invalidacion de tokens anteriores cuando el flujo lo requiere
+- los tokens de reset password ya no quedan reutilizables en claro desde una lectura directa de base de datos
 
 ## Rate limiting
 
@@ -24,6 +25,8 @@ Se aplican limites en flujos sensibles como:
 
 - login
 - reenvio de verificacion
+- solicitud de recuperacion de contrasena
+- confirmacion de recuperacion de contrasena
 
 ## Seguridad de archivos
 
@@ -43,6 +46,8 @@ Se aplican limites en flujos sensibles como:
 - secrets y credenciales fuera del repositorio
 - uso de `.env` para desarrollo
 - `.env` excluido del control de versiones
+- credenciales SMTP o del proveedor transaccional fuera del repositorio
+- produccion publica no debe habilitarse sin configuracion real de correo
 
 ## Analisis estatico de seguridad
 
@@ -60,6 +65,8 @@ Se aplican limites en flujos sensibles como:
 - proteger endpoints administrativos con autenticacion y rol
 - restringir acceso a datos sensibles segun contexto del usuario
 - mantener auditoria de acciones de moderacion y administracion
+- separar modo `testing`, modo local por logs y modo SMTP real para correo
+- invalidar sesiones JWT previas cuando cambia una credencial sensible como la contrasena
 
 ## Nota
 

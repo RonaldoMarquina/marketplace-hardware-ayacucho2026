@@ -23,13 +23,35 @@ const passwordRules = [
   },
 ]
 
+const resolveTokenFromLocation = (location) => {
+  const searchToken = new URLSearchParams(location.search).get('token')
+  if (searchToken) {
+    return searchToken
+  }
+
+  const normalizedHash = location.hash.startsWith('#')
+    ? location.hash.slice(1)
+    : location.hash
+
+  if (!normalizedHash) {
+    return ''
+  }
+
+  if (normalizedHash.startsWith('token=')) {
+    return new URLSearchParams(normalizedHash).get('token') ?? ''
+  }
+
+  const hashQueryIndex = normalizedHash.indexOf('?')
+  if (hashQueryIndex >= 0) {
+    return new URLSearchParams(normalizedHash.slice(hashQueryIndex + 1)).get('token') ?? ''
+  }
+
+  return ''
+}
+
 const ResetPassword = () => {
   const location = useLocation()
-  const queryParams = useMemo(
-    () => new URLSearchParams(location.search),
-    [location.search],
-  )
-  const token = queryParams.get('token')
+  const token = useMemo(() => resolveTokenFromLocation(location), [location])
   const [form, setForm] = useState({
     password: '',
     confirmarPassword: '',

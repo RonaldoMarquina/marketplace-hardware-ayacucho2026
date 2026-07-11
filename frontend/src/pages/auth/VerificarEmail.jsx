@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import api from '../../api/axios'
 import { formatDateTime } from '../../utils/format'
@@ -12,15 +12,38 @@ const getCooldown = (deadline) => {
   return diff > 0 ? diff : 0
 }
 
+const resolveTokenFromLocation = (location) => {
+  const searchToken = new URLSearchParams(location.search).get('token')
+  if (searchToken) {
+    return searchToken
+  }
+
+  const normalizedHash = location.hash.startsWith('#')
+    ? location.hash.slice(1)
+    : location.hash
+
+  if (!normalizedHash) {
+    return ''
+  }
+
+  if (normalizedHash.startsWith('token=')) {
+    return new URLSearchParams(normalizedHash).get('token') ?? ''
+  }
+
+  const hashQueryIndex = normalizedHash.indexOf('?')
+  if (hashQueryIndex >= 0) {
+    return new URLSearchParams(normalizedHash.slice(hashQueryIndex + 1)).get('token') ?? ''
+  }
+
+  return ''
+}
+
 const VerificarEmail = () => {
   const location = useLocation()
-  const queryParams = useMemo(
-    () => new URLSearchParams(location.search),
-    [location.search],
-  )
+  const navigate = useNavigate()
   const correo = location.state?.correo ?? ''
   const esTienda = location.state?.esTienda === true
-  const verificationToken = queryParams.get('token')
+  const verificationToken = useMemo(() => resolveTokenFromLocation(location), [location])
   const [status, setStatus] = useState(verificationToken ? 'verifying' : 'idle')
   const [message, setMessage] = useState('')
   const [reenvioMensaje, setReenvioMensaje] = useState('')
@@ -50,6 +73,12 @@ const VerificarEmail = () => {
   }, [cooldown, cooldownEnd])
 
   useEffect(() => {
+    if (!verificationToken && location.pathname === '/verificar') {
+      setStatus('error')
+      setMessage('El enlace no incluye un token valido de verificacion.')
+      return
+    }
+
     if (!verificationToken) {
       return
     }
@@ -65,9 +94,11 @@ const VerificarEmail = () => {
         if (estado === 'ACTIVO') {
           setStatus('success')
           setMessage('Cuenta activada. Ya puedes ingresar.')
+          window.setTimeout(() => navigate('/login', { replace: true }), 2000)
         } else if (estado === 'EN_REVISION') {
           setStatus('review')
           setMessage('Correo verificado. Espera la aprobacion del administrador.')
+          window.setTimeout(() => navigate('/login', { replace: true }), 2500)
         }
       } catch (error) {
         const statusCode = error.response?.status
@@ -93,7 +124,7 @@ const VerificarEmail = () => {
     }
 
     verifyEmail()
-  }, [verificationToken])
+  }, [location.pathname, navigate, verificationToken])
 
   const handleResend = async () => {
     if (!correo) {
@@ -141,7 +172,9 @@ const VerificarEmail = () => {
         </div>
 
         <div className="space-y-4 text-center">
-          <h1 className="text-3xl font-black text-slate-900">Revisa tu correo</h1>
+          <h1 className="text-3xl font-black text-slate-900">
+            {verificationToken ? 'Verificacion de correo' : 'Revisa tu correo'}
+          </h1>
 
           {esTienda ? (
             <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -150,7 +183,7 @@ const VerificarEmail = () => {
             </p>
           ) : null}
 
-          {correo ? (
+          {!verificationToken && correo ? (
             <p className="text-sm text-slate-600">
               Enviamos un mensaje de verificacion a <span className="font-semibold">{correo}</span>.
             </p>

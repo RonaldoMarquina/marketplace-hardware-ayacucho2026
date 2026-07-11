@@ -69,6 +69,12 @@ def test_registro_crea_token_verificacion_activo(client, app):
     response = registrar_usuario(client)
 
     assert response.status_code == 201
+    assert len(app.extensions["mail_outbox"]) == 1
+    correo = app.extensions["mail_outbox"][0]
+    assert correo["kind"] == "email_verification"
+    assert correo["to"] == "luis@gmail.com"
+    assert "/verificar?token=" in correo["link"]
+
     with app.app_context():
         token = obtener_token("luis@gmail.com")
         assert token is not None
@@ -163,6 +169,7 @@ def test_verificar_correo_token_expirado_retorna_410(client, app):
 
 def test_reenviar_verificacion_invalida_token_anterior_y_crea_nuevo(client, app):
     registrar_usuario(client)
+    app.extensions["mail_outbox"].clear()
 
     with app.app_context():
         token_anterior = obtener_token("luis@gmail.com").token
@@ -174,6 +181,8 @@ def test_reenviar_verificacion_invalida_token_anterior_y_crea_nuevo(client, app)
     assert body["success"] is True
     assert body["message"] == "Correo de verificacion reenviado. Revisa tu bandeja de entrada."
     assert "expira_en" in body["data"]
+    assert len(app.extensions["mail_outbox"]) == 1
+    assert app.extensions["mail_outbox"][0]["kind"] == "email_verification"
 
     with app.app_context():
         tokens = TokenVerificacion.query.join(Usuario).filter(

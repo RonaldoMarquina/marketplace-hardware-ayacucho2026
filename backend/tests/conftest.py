@@ -13,9 +13,14 @@ from app.services.auth_service import AuthService
 def app(tmp_path):
     AuthService._login_attempts.clear()
     AuthService._password_reset_attempts.clear()
+    AuthService._password_reset_confirm_attempts.clear()
     flask_app = create_app(
         {
             "TESTING": True,
+            "EMAIL_DELIVERY_MODE": "testing",
+            "EMAIL_PUBLIC_PRODUCTION": False,
+            "EMAIL_FROM": "test@hardwareayacucho.local",
+            "EMAIL_SUBJECT_PREFIX": "[Test]",
             "JWT_SECRET_KEY": "test-jwt-secret-for-hs256-32-bytes-minimum",
             "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
             "SQLALCHEMY_TRACK_MODIFICATIONS": False,
@@ -24,6 +29,7 @@ def app(tmp_path):
     )
 
     with flask_app.app_context():
+        flask_app.extensions["mail_outbox"] = []
         db.create_all()
         yield flask_app
         db.session.remove()
@@ -31,6 +37,7 @@ def app(tmp_path):
         db.engine.dispose()
         AuthService._login_attempts.clear()
         AuthService._password_reset_attempts.clear()
+        AuthService._password_reset_confirm_attempts.clear()
 
 
 @pytest.fixture(scope="function")

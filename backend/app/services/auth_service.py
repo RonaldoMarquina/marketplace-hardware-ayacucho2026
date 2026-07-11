@@ -1,5 +1,6 @@
-﻿from pathlib import Path
+from pathlib import Path
 from datetime import UTC, datetime, timedelta
+import hashlib
 import secrets
 import threading
 
@@ -13,6 +14,7 @@ from app.models.tienda import Tienda
 from app.models.token_verificacion import TokenVerificacion
 from app.models.usuario import Usuario
 from app.repositories.auth_repository import AuthRepository
+from app.services.email_service import EmailService
 from app.utils.file_validation import (
     FileValidationError,
     persist_store_document,
@@ -37,6 +39,9 @@ class AuthService:
     _password_reset_limit = 3
     _password_reset_window_minutes = 15
     _password_reset_attempts = {}
+    _password_reset_confirm_limit = 10
+    _password_reset_confirm_window_minutes = 15
+    _password_reset_confirm_attempts = {}
 
     @staticmethod
     def registrar_usuario(data):
@@ -252,6 +257,7 @@ class AuthService:
             additional_claims={
                 "correo": usuario.correo,
                 "rol": usuario.rol,
+                "pwd_sig": AuthService.password_claim_signature(usuario.password_hash),
             },
             expires_delta=timedelta(hours=8),
         )
@@ -416,8 +422,18 @@ class AuthService:
     def solicitar_reset_password(data, ip_address=None):
         correo = data["correo"]
         ahora = AuthService._utcnow()
+        current_app.logger.info(
+            "Password reset request correo=%s ip=%s",
+            correo.strip().lower(),
+            ip_address or "unknown",
+        )
         rate_limit = AuthService._validar_rate_limit_reset(correo, ip_address, ahora)
         if rate_limit:
+            current_app.logger.warning(
+                "Password reset request rate_limited correo=%s ip=%s",
+                correo.strip().lower(),
+                ip_address or "unknown",
+            )
             return rate_limit
 
         usuario = AuthRepository.buscar_usuario_por_correo(correo)
@@ -439,11 +455,11 @@ class AuthService:
             ):
                 token_anterior.usado = True
 
-            token_reset = AuthService._crear_token_password_reset(usuario, ahora)
+            token_reset, raw_token = AuthService._crear_token_password_reset(usuario, ahora)
             AuthRepository.agregar_token_verificacion(token_reset)
             AuthRepository.commit()
             AuthService._registrar_solicitud_reset(correo, ip_address, ahora)
-            AuthService._enviar_correo_reset_password_async(usuario, token_reset.token)
+            AuthService._enviar_correo_reset_password_async(usuario, raw_token)
             return respuesta_generica
         except SQLAlchemyError:
             AuthRepository.rollback()
@@ -456,11 +472,25 @@ class AuthService:
 
     @staticmethod
     def confirmar_reset_password(data, ip_address=None):
+        ahora = AuthService._utcnow()
+        rate_limit = AuthService._validar_rate_limit_reset_confirm(ip_address, ahora)
+        if rate_limit:
+            current_app.logger.warning(
+                "Password reset confirm rate_limited ip=%s",
+                ip_address or "unknown",
+            )
+            return rate_limit
+
         token_verificacion = AuthRepository.buscar_token_por_valor_y_tipo(
             data["token"],
             "PASSWORD_RESET",
         )
         if not token_verificacion:
+            AuthService._registrar_intento_reset_confirm(ip_address, ahora)
+            current_app.logger.warning(
+                "Password reset confirm rejected reason=NOT_FOUND ip=%s",
+                ip_address or "unknown",
+            )
             return {
                 "success": False,
                 "data": {},
@@ -469,6 +499,12 @@ class AuthService:
             }
 
         if token_verificacion.usado:
+            AuthService._registrar_intento_reset_confirm(ip_address, ahora)
+            current_app.logger.warning(
+                "Password reset confirm rejected reason=TOKEN_USED usuario_id=%s ip=%s",
+                token_verificacion.usuario_id,
+                ip_address or "unknown",
+            )
             return {
                 "success": False,
                 "data": {},
@@ -476,7 +512,13 @@ class AuthService:
                 "message": "El token ya fue usado.",
             }
 
-        if token_verificacion.expira_en <= AuthService._utcnow():
+        if token_verificacion.expira_en <= ahora:
+            AuthService._registrar_intento_reset_confirm(ip_address, ahora)
+            current_app.logger.warning(
+                "Password reset confirm rejected reason=TOKEN_EXPIRED usuario_id=%s ip=%s",
+                token_verificacion.usuario_id,
+                ip_address or "unknown",
+            )
             return {
                 "success": False,
                 "data": {},
@@ -486,6 +528,13 @@ class AuthService:
 
         usuario = token_verificacion.usuario
         if usuario.estado not in {"ACTIVO", "BLOQUEADO_TEMP"}:
+            AuthService._registrar_intento_reset_confirm(ip_address, ahora)
+            current_app.logger.warning(
+                "Password reset confirm rejected reason=FORBIDDEN usuario_id=%s estado=%s ip=%s",
+                usuario.id,
+                usuario.estado,
+                ip_address or "unknown",
+            )
             return {
                 "success": False,
                 "data": {},
@@ -494,6 +543,12 @@ class AuthService:
             }
 
         if AuthService._password_valido(usuario, data["password"]):
+            AuthService._registrar_intento_reset_confirm(ip_address, ahora)
+            current_app.logger.warning(
+                "Password reset confirm rejected reason=PASSWORD_REUSE usuario_id=%s ip=%s",
+                usuario.id,
+                ip_address or "unknown",
+            )
             return {
                 "success": False,
                 "data": {},
@@ -518,6 +573,10 @@ class AuthService:
             ):
                 token_activo.usado = True
 
+            AuthService._password_reset_confirm_attempts.pop(
+                AuthService._password_reset_confirm_key(ip_address),
+                None,
+            )
             AuthRepository.commit()
             current_app.logger.info(
                 "Password reset usuario_id=%s ip=%s accion=PASSWORD_RESET",
@@ -653,6 +712,43 @@ class AuthService:
         return f"{(ip_address or 'unknown').strip()}::{correo.strip().lower()}"
 
     @staticmethod
+    def _validar_rate_limit_reset_confirm(ip_address, ahora):
+        ventana = ahora - timedelta(
+            minutes=AuthService._password_reset_confirm_window_minutes
+        )
+        request_key = AuthService._password_reset_confirm_key(ip_address)
+        intentos = [
+            ts
+            for ts in AuthService._password_reset_confirm_attempts.get(request_key, [])
+            if ts >= ventana
+        ]
+        AuthService._password_reset_confirm_attempts[request_key] = intentos
+        if len(intentos) >= AuthService._password_reset_confirm_limit:
+            disponible_en = intentos[0] + timedelta(
+                minutes=AuthService._password_reset_confirm_window_minutes
+            )
+            return {
+                "success": False,
+                "data": {
+                    "disponible_en": disponible_en.isoformat(timespec="seconds"),
+                },
+                "error": "RATE_LIMIT_PASSWORD_RESET_CONFIRM",
+                "message": "Demasiados intentos. Espera 15 minutos antes de intentar de nuevo.",
+            }
+
+        return None
+
+    @staticmethod
+    def _registrar_intento_reset_confirm(ip_address, timestamp):
+        request_key = AuthService._password_reset_confirm_key(ip_address)
+        intentos = AuthService._password_reset_confirm_attempts.setdefault(request_key, [])
+        intentos.append(timestamp)
+
+    @staticmethod
+    def _password_reset_confirm_key(ip_address):
+        return (ip_address or "unknown").strip()
+
+    @staticmethod
     def _registrar_evento_login(usuario_id, ip_address, exitoso):
         current_app.logger.info(
             "Login usuario_id=%s ip=%s exitoso=%s",
@@ -664,6 +760,10 @@ class AuthService:
     @staticmethod
     def _utcnow():
         return datetime.now(UTC).replace(tzinfo=None)
+
+    @staticmethod
+    def password_claim_signature(password_hash):
+        return hashlib.sha256(password_hash.encode("utf-8")).hexdigest()[:16]
 
     @staticmethod
     def _crear_token_verificacion(usuario):
@@ -679,21 +779,24 @@ class AuthService:
     @staticmethod
     def _crear_token_password_reset(usuario, ahora=None):
         timestamp = ahora or AuthService._utcnow()
-        return TokenVerificacion(
+        raw_token = secrets.token_urlsafe(48)
+        token_model = TokenVerificacion(
             usuario=usuario,
-            token=secrets.token_hex(32),
+            token=AuthRepository.hash_token_value(raw_token),
             tipo="PASSWORD_RESET",
             expira_en=timestamp + timedelta(hours=1),
             usado=False,
             created_at=timestamp,
         )
+        return token_model, raw_token
 
     @staticmethod
     def _enviar_correo_verificacion_async(usuario, token):
-        if current_app.config.get("TESTING"):
+        app = current_app._get_current_object()
+        if app.config.get("TESTING") or app.config.get("EMAIL_DELIVERY_MODE") == "testing":
+            AuthService._enviar_correo_verificacion(app, usuario.correo, token)
             return
 
-        app = current_app._get_current_object()
         thread = threading.Thread(
             target=AuthService._enviar_correo_verificacion,
             args=(app, usuario.correo, token),
@@ -703,10 +806,11 @@ class AuthService:
 
     @staticmethod
     def _enviar_correo_reset_password_async(usuario, token):
-        if current_app.config.get("TESTING"):
+        app = current_app._get_current_object()
+        if app.config.get("TESTING") or app.config.get("EMAIL_DELIVERY_MODE") == "testing":
+            AuthService._enviar_correo_reset_password(app, usuario.correo, token)
             return
 
-        app = current_app._get_current_object()
         thread = threading.Thread(
             target=AuthService._enviar_correo_reset_password,
             args=(app, usuario.correo, token),
@@ -717,18 +821,14 @@ class AuthService:
     @staticmethod
     def _enviar_correo_verificacion(app, correo, token):
         try:
-            frontend_url = app.config.get("FRONTEND_URL") or "http://localhost:5173"
-            enlace = f"{frontend_url}/verificar?token={token}"
-            app.logger.info("Enlace de verificacion para %s: %s", correo, enlace)
+            EmailService.send_verification_email(app, correo, token)
         except Exception:
             app.logger.exception("No se pudo enviar correo de verificacion")
 
     @staticmethod
     def _enviar_correo_reset_password(app, correo, token):
         try:
-            frontend_url = app.config.get("FRONTEND_URL") or "http://localhost:5173"
-            enlace = f"{frontend_url}/reset-password?token={token}"
-            app.logger.info("Enlace de reset password para %s: %s", correo, enlace)
+            EmailService.send_password_reset_email(app, correo, token)
         except Exception:
             app.logger.exception("No se pudo enviar correo de reset password")
 

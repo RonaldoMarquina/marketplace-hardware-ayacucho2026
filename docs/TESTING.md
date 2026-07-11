@@ -106,6 +106,20 @@ py -m pytest --cov=app --cov-config=.coveragerc --cov-report=term-missing --cov-
 - reporte en consola
 - archivo `coverage.xml` para integracion con SonarQube
 
+## Correo en testing
+
+Los tests no envian correos reales. El backend usa `EMAIL_DELIVERY_MODE=testing`
+y registra cada mensaje en una bandeja interna (`mail_outbox`) para poder
+validar verificacion de correo y reset password sin credenciales externas.
+
+## Hardening de reset password
+
+La suite ya cubre tres garantias extra del flujo de recuperacion:
+
+- el token enviado por correo no queda persistido reusable en claro
+- un JWT emitido antes del cambio de contrasena queda revocado despues del reset
+- la confirmacion del reset tiene rate limit dedicado para frenar abuso por IP
+
 ## Pylint
 
 El backend incluye configuracion en `backend/.pylintrc`.
@@ -269,5 +283,7 @@ ejecucion del scanner.
 - regenerar cobertura antes de analisis en SonarQube
 - ejecutar Bandit despues de Pylint para detectar patrones inseguros del backend
 - usar `scripts/run-qa-hardening.ps1` como entry point oficial del flujo local
+- no considerar la app lista para produccion publica sin `EMAIL_DELIVERY_MODE=smtp`
+  y credenciales reales de correo transaccional
 - mantener nuevas reglas puras en `tests/unit`
 - mantener nuevos endpoints o flujos en `tests/integration`

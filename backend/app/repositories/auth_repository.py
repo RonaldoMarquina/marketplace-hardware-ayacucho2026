@@ -1,6 +1,8 @@
-﻿from app import db
+import hashlib
+
 from sqlalchemy import or_
 
+from app import db
 from app.models.tienda import Tienda
 from app.models.token_verificacion import TokenVerificacion
 from app.models.usuario import Usuario
@@ -42,7 +44,21 @@ class AuthRepository:
 
     @staticmethod
     def buscar_token_por_valor_y_tipo(token, tipo):
+        if tipo == "PASSWORD_RESET":
+            hashed_token = AuthRepository.hash_token_value(token)
+            return TokenVerificacion.query.filter(
+                TokenVerificacion.tipo == tipo,
+                or_(
+                    TokenVerificacion.token == token,
+                    TokenVerificacion.token == hashed_token,
+                ),
+            ).first()
+
         return TokenVerificacion.query.filter_by(token=token, tipo=tipo).first()
+
+    @staticmethod
+    def hash_token_value(token):
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     @staticmethod
     def buscar_tokens_activos_usuario(usuario_id, tipo="EMAIL_VERIFICATION"):

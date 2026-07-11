@@ -278,6 +278,7 @@ def reset_password_controller():
         "TOKEN_EXPIRED": 410,
         "FORBIDDEN": 403,
         "CONFLICT": 409,
+        "RATE_LIMIT_PASSWORD_RESET_CONFIRM": 429,
         "DATABASE_ERROR": 500,
     }
     return jsonify(respuesta), 200 if respuesta.get("success") else status_by_error.get(respuesta.get("error"), 500)

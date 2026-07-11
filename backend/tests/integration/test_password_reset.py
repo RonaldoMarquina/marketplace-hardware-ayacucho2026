@@ -5,10 +5,12 @@ pytestmark = pytest.mark.integration
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
+from flask_jwt_extended import create_access_token
 
 from app import db
 from app.models.token_verificacion import TokenVerificacion
 from app.models.usuario import Usuario
+from app.services.auth_service import AuthService
 
 
 FORGOT_URL = "/api/v1/auth/password/forgot"
@@ -60,6 +62,11 @@ def test_forgot_password_activo_crea_token_e_invalida_anteriores(client, app):
     assert response.status_code == 200
     body = response.get_json()
     assert body["success"] is True
+    assert len(app.extensions["mail_outbox"]) == 1
+    correo = app.extensions["mail_outbox"][0]
+    assert correo["kind"] == "password_reset"
+    assert correo["to"] == "reset@gmail.com"
+    assert "/reset-password?token=" in correo["link"]
 
     with app.app_context():
         tokens = TokenVerificacion.query.filter_by(
@@ -70,6 +77,8 @@ def test_forgot_password_activo_crea_token_e_invalida_anteriores(client, app):
         assert tokens[0].usado is True
         assert tokens[1].usado is False
         assert tokens[1].expira_en > tokens[1].created_at
+        raw_token = correo["link"].split("token=", 1)[1]
+        assert tokens[1].token != raw_token
 
 
 def test_forgot_password_correo_inexistente_retorna_200_generico(client):
@@ -79,6 +88,16 @@ def test_forgot_password_correo_inexistente_retorna_200_generico(client):
     body = response.get_json()
     assert body["success"] is True
     assert "recibiras un enlace" in body["message"].lower()
+
+
+def test_forgot_password_no_envia_correo_si_cuenta_no_es_activa(client, app):
+    with app.app_context():
+        crear_usuario(correo="blocked@gmail.com", estado="BLOQUEADO", telefono="987654399")
+
+    response = client.post(FORGOT_URL, json={"correo": "blocked@gmail.com"})
+
+    assert response.status_code == 200
+    assert app.extensions["mail_outbox"] == []
 
 
 def test_forgot_password_cuenta_no_activa_no_crea_token(client, app):
@@ -222,4 +241,65 @@ def test_reset_password_exitoso_actualiza_hash_e_invalida_tokens(client, app):
             tipo="PASSWORD_RESET",
         ).all()
         assert all(token.usado is True for token in tokens)
+
+
+def test_reset_password_revoca_jwt_emitido_antes_del_cambio(client, app):
+    with app.app_context():
+        usuario = crear_usuario(correo="jwt@gmail.com", telefono="987654327")
+        usuario_id = usuario.id
+        access_token = create_access_token(
+            identity=str(usuario.id),
+            additional_claims={
+                "correo": usuario.correo,
+                "rol": usuario.rol,
+                "pwd_sig": AuthService.password_claim_signature(usuario.password_hash),
+            },
+            expires_delta=timedelta(hours=8),
+        )
+        crear_token_reset(usuario, token="token-jwt")
+
+    reset_response = client.post(
+        RESET_URL,
+        json={"token": "token-jwt", "password": NEW_PASSWORD},
+    )
+
+    assert reset_response.status_code == 200
+
+    panel_response = client.get(
+        "/api/v1/usuarios/me/panel",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    assert panel_response.status_code == 401
+    assert (
+        panel_response.get_json()["message"]
+        == "Token JWT revocado por cambio de credenciales."
+    )
+
+    with app.app_context():
+        usuario = db.session.get(Usuario, usuario_id)
+        assert bcrypt.checkpw(
+            NEW_PASSWORD.encode("utf-8"),
+            usuario.password_hash.encode("utf-8"),
+        )
+
+
+def test_reset_password_confirm_rate_limit_retorna_429(client):
+    for _ in range(10):
+        response = client.post(
+            RESET_URL,
+            json={"token": "no-existe", "password": NEW_PASSWORD},
+        )
+        assert response.status_code == 404
+        assert response.get_json()["error"] == "NOT_FOUND"
+
+    response = client.post(
+        RESET_URL,
+        json={"token": "no-existe", "password": NEW_PASSWORD},
+    )
+
+    assert response.status_code == 429
+    body = response.get_json()
+    assert body["error"] == "RATE_LIMIT_PASSWORD_RESET_CONFIRM"
+    assert "disponible_en" in body["data"]
 

@@ -18,6 +18,14 @@ migrate = Migrate()
 csrf = CSRFProtect()
 
 
+def _env_flag(env_name, default=False):
+    value = os.getenv(env_name)
+    if value is None:
+        return default
+
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _resolve_app_secret(*env_names, allow_ephemeral=False):
     for env_name in env_names:
         secret_value = os.getenv(env_name)
@@ -71,9 +79,30 @@ def create_app(test_config=None):
         str(backend_dir / "uploads"),
     )
     app.config["MAX_DOCUMENT_SIZE"] = 5 * 1024 * 1024
+    app.config["FRONTEND_URL"] = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    app.config["EMAIL_DELIVERY_MODE"] = os.getenv(
+        "EMAIL_DELIVERY_MODE",
+        "testing" if testing_mode else "log",
+    ).strip().lower()
+    app.config["EMAIL_PUBLIC_PRODUCTION"] = _env_flag("EMAIL_PUBLIC_PRODUCTION", False)
+    app.config["EMAIL_FROM"] = os.getenv("EMAIL_FROM", "no-reply@hardwareayacucho.local")
+    app.config["EMAIL_SUBJECT_PREFIX"] = os.getenv(
+        "EMAIL_SUBJECT_PREFIX",
+        "[HardwareAyacucho]",
+    )
+    app.config["SMTP_HOST"] = os.getenv("SMTP_HOST")
+    app.config["SMTP_PORT"] = int(os.getenv("SMTP_PORT", "587"))
+    app.config["SMTP_USERNAME"] = os.getenv("SMTP_USERNAME")
+    app.config["SMTP_PASSWORD"] = os.getenv("SMTP_PASSWORD")
+    app.config["SMTP_USE_TLS"] = _env_flag("SMTP_USE_TLS", True)
+    app.config["SMTP_USE_SSL"] = _env_flag("SMTP_USE_SSL", False)
+    app.config["SMTP_TIMEOUT_SECONDS"] = int(os.getenv("SMTP_TIMEOUT_SECONDS", "15"))
 
     if test_config:
         app.config.update(test_config)
+
+    app.extensions.setdefault("mail_outbox", [])
+    _validate_email_config(app)
 
     db.init_app(app)
     jwt.init_app(app)
@@ -109,6 +138,36 @@ def create_app(test_config=None):
     return app
 
 
+def _validate_email_config(app):
+    email_mode = app.config.get("EMAIL_DELIVERY_MODE", "log")
+    supported_modes = {"testing", "log", "smtp"}
+    if email_mode not in supported_modes:
+        raise RuntimeError(
+            "EMAIL_DELIVERY_MODE debe ser uno de: testing, log, smtp."
+        )
+
+    if email_mode != "smtp" and app.config.get("EMAIL_PUBLIC_PRODUCTION"):
+        raise RuntimeError(
+            "La produccion publica requiere EMAIL_DELIVERY_MODE=smtp con configuracion real de correo."
+        )
+
+    if email_mode != "smtp":
+        return
+
+    missing = [
+        key
+        for key in ("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD", "EMAIL_FROM")
+        if not app.config.get(key)
+    ]
+    if missing:
+        raise RuntimeError(
+            "Falta configuracion SMTP obligatoria: " + ", ".join(missing) + "."
+        )
+
+    if app.config.get("SMTP_USE_TLS") and app.config.get("SMTP_USE_SSL"):
+        raise RuntimeError("SMTP_USE_TLS y SMTP_USE_SSL no pueden estar activos a la vez.")
+
+
 def _registrar_manejadores_jwt(jwt_manager):
     @jwt_manager.unauthorized_loader
     def jwt_faltante(_reason):
@@ -135,4 +194,36 @@ def _registrar_manejadores_jwt(jwt_manager):
             "data": {},
             "error": "UNAUTHORIZED",
             "message": "Token JWT expirado.",
+        }), 401
+
+    @jwt_manager.token_in_blocklist_loader
+    def jwt_revocado(_jwt_header, jwt_payload):
+        password_signature = jwt_payload.get("pwd_sig")
+        if not password_signature:
+            return False
+
+        from app.models.usuario import Usuario
+        from app.services.auth_service import AuthService
+
+        try:
+            usuario_id = int(jwt_payload["sub"])
+        except (KeyError, TypeError, ValueError):
+            return True
+
+        usuario = db.session.get(Usuario, usuario_id)
+        if not usuario:
+            return True
+
+        return (
+            AuthService.password_claim_signature(usuario.password_hash)
+            != password_signature
+        )
+
+    @jwt_manager.revoked_token_loader
+    def jwt_token_revocado(_jwt_header, _jwt_payload):
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "UNAUTHORIZED",
+            "message": "Token JWT revocado por cambio de credenciales.",
         }), 401
