@@ -8,6 +8,10 @@
 - Tailwind CSS
 - Axios
 
+Configuracion relevante:
+
+- `VITE_API_ORIGIN` para resolver API REST y URLs de imagenes contra el backend
+
 ## Backend
 
 - Python 3.14
@@ -49,6 +53,14 @@ Frontend
   -> MySQL
 ```
 
+## Correo transaccional
+
+El backend ya soporta tres tipos principales de correo:
+
+- verificacion de cuenta
+- recuperacion de contrasena
+- aviso al vendedor o tienda cuando un anuncio recibe un reporte
+
 ## Convenciones clave
 
 - Backend Python: `snake_case`
@@ -67,6 +79,7 @@ DATABASE_URL
 UPLOAD_FOLDER
 MAX_CONTENT_LENGTH
 FRONTEND_URL
+VITE_API_ORIGIN
 EMAIL_DELIVERY_MODE
 EMAIL_PUBLIC_PRODUCTION
 EMAIL_FROM
@@ -87,3 +100,5 @@ SMTP_TIMEOUT_SECONDS
 - La persistencia vive en `repositories/` y modelos ORM
 - Toda respuesta de API debe ser JSON
 - Toda funcionalidad nueva debe incluir pruebas automatizadas
+- La carpeta de uploads debe resolverse de forma estable aun cuando
+  `UPLOAD_FOLDER` se declare como ruta relativa del workspace

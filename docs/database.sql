@@ -238,6 +238,7 @@ CREATE TABLE reportes (
                         'DUPLICADO',
                         'OTRO'
                     )               NOT NULL,
+    detalle         TEXT            NULL,
     estado          ENUM(
                         'PENDIENTE',
                         'REVISADO'
@@ -258,9 +259,136 @@ CREATE TABLE reportes (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Migraciones para bases ya existentes antes del reporte enriquecido de HU-13.
+-- ALTER TABLE reportes
+-- ADD COLUMN detalle TEXT NULL AFTER motivo;
+
+CREATE TABLE reporte_evidencias (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    reporte_id      INT UNSIGNED    NOT NULL,
+    tipo_archivo    ENUM('IMAGEN')  NOT NULL DEFAULT 'IMAGEN',
+    ruta_relativa   VARCHAR(500)    NOT NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX idx_reporte_evidencias_reporte      (reporte_id),
+    INDEX idx_reporte_evidencias_tipo         (tipo_archivo),
+    INDEX idx_reporte_evidencias_created_at   (created_at),
+
+    CONSTRAINT fk_reporte_evidencias_reporte
+        FOREIGN KEY (reporte_id) REFERENCES reportes (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Migraciones para bases ya existentes antes de evidencias de reportes.
+-- CREATE TABLE reporte_evidencias (
+--     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+--     reporte_id INT UNSIGNED NOT NULL,
+--     tipo_archivo ENUM('IMAGEN') NOT NULL DEFAULT 'IMAGEN',
+--     ruta_relativa VARCHAR(500) NOT NULL,
+--     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+--     PRIMARY KEY (id),
+--     INDEX idx_reporte_evidencias_reporte (reporte_id),
+--     INDEX idx_reporte_evidencias_tipo (tipo_archivo),
+--     INDEX idx_reporte_evidencias_created_at (created_at),
+--     CONSTRAINT fk_reporte_evidencias_reporte
+--         FOREIGN KEY (reporte_id) REFERENCES reportes (id)
+--         ON DELETE CASCADE ON UPDATE CASCADE
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- ------------------------------------------------------------
--- 7. AUDITORIA DE MODERACION
+-- 7. APELACIONES Y DESCARGOS
+-- HU-13 (moderacion fase 2)
+-- ------------------------------------------------------------
+CREATE TABLE apelaciones_moderacion (
+    id                  INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    anuncio_id          INT UNSIGNED    NOT NULL,
+    usuario_id          INT UNSIGNED    NOT NULL,
+    mensaje             TEXT            NOT NULL,
+    estado              ENUM(
+                            'PENDIENTE',
+                            'ACEPTADA',
+                            'RECHAZADA'
+                        )               NOT NULL DEFAULT 'PENDIENTE',
+    respuesta_admin     TEXT            NULL,
+    created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolved_at         DATETIME        NULL,
+
+    PRIMARY KEY (id),
+    INDEX idx_apelaciones_anuncio      (anuncio_id),
+    INDEX idx_apelaciones_usuario      (usuario_id),
+    INDEX idx_apelaciones_estado       (estado),
+    INDEX idx_apelaciones_created_at   (created_at),
+    INDEX idx_apelaciones_resolved_at  (resolved_at),
+
+    CONSTRAINT fk_apelaciones_anuncio
+        FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_apelaciones_usuario
+        FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE apelacion_evidencias (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    apelacion_id    INT UNSIGNED    NOT NULL,
+    tipo_archivo    ENUM('IMAGEN')  NOT NULL DEFAULT 'IMAGEN',
+    ruta_relativa   VARCHAR(500)    NOT NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX idx_apelacion_evidencias_apelacion    (apelacion_id),
+    INDEX idx_apelacion_evidencias_tipo         (tipo_archivo),
+    INDEX idx_apelacion_evidencias_created_at   (created_at),
+
+    CONSTRAINT fk_apelacion_evidencias_apelacion
+        FOREIGN KEY (apelacion_id) REFERENCES apelaciones_moderacion (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Migraciones para bases ya existentes antes de apelaciones de moderacion.
+-- CREATE TABLE apelaciones_moderacion (
+--     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+--     anuncio_id INT UNSIGNED NOT NULL,
+--     usuario_id INT UNSIGNED NOT NULL,
+--     mensaje TEXT NOT NULL,
+--     estado ENUM('PENDIENTE', 'ACEPTADA', 'RECHAZADA') NOT NULL DEFAULT 'PENDIENTE',
+--     respuesta_admin TEXT NULL,
+--     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+--     resolved_at DATETIME NULL,
+--     PRIMARY KEY (id),
+--     INDEX idx_apelaciones_anuncio (anuncio_id),
+--     INDEX idx_apelaciones_usuario (usuario_id),
+--     INDEX idx_apelaciones_estado (estado),
+--     INDEX idx_apelaciones_created_at (created_at),
+--     INDEX idx_apelaciones_resolved_at (resolved_at),
+--     CONSTRAINT fk_apelaciones_anuncio
+--         FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
+--         ON DELETE CASCADE ON UPDATE CASCADE,
+--     CONSTRAINT fk_apelaciones_usuario
+--         FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+--         ON DELETE CASCADE ON UPDATE CASCADE
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+--
+-- CREATE TABLE apelacion_evidencias (
+--     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+--     apelacion_id INT UNSIGNED NOT NULL,
+--     tipo_archivo ENUM('IMAGEN') NOT NULL DEFAULT 'IMAGEN',
+--     ruta_relativa VARCHAR(500) NOT NULL,
+--     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+--     PRIMARY KEY (id),
+--     INDEX idx_apelacion_evidencias_apelacion (apelacion_id),
+--     INDEX idx_apelacion_evidencias_tipo (tipo_archivo),
+--     INDEX idx_apelacion_evidencias_created_at (created_at),
+--     CONSTRAINT fk_apelacion_evidencias_apelacion
+--         FOREIGN KEY (apelacion_id) REFERENCES apelaciones_moderacion (id)
+--         ON DELETE CASCADE ON UPDATE CASCADE
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ------------------------------------------------------------
+-- 8. AUDITORIA DE MODERACION
 -- HU-13 (moderacion admin)
 -- ------------------------------------------------------------
 CREATE TABLE moderacion_log (
@@ -290,7 +418,7 @@ CREATE TABLE moderacion_log (
 
 
 -- ------------------------------------------------------------
--- 8. AUDITORIA ADMIN UNIFICADA
+-- 9. AUDITORIA ADMIN UNIFICADA
 -- HU-13 (moderacion anuncios), HU-20 (gestion de usuarios)
 -- ------------------------------------------------------------
 CREATE TABLE admin_log (
@@ -329,7 +457,7 @@ CREATE TABLE admin_log (
 
 
 -- ------------------------------------------------------------
--- 9. TRANSACCIONES
+-- 10. TRANSACCIONES
 -- HU-14 (marcar vendido)
 -- ------------------------------------------------------------
 CREATE TABLE transacciones (
@@ -362,7 +490,7 @@ CREATE TABLE transacciones (
 
 
 -- ------------------------------------------------------------
--- 10. CALIFICACIONES
+-- 11. CALIFICACIONES
 -- HU-15 (calificar vendedor), HU-16 (calificar comprador)
 -- ------------------------------------------------------------
 CREATE TABLE calificaciones (
@@ -399,7 +527,7 @@ CREATE TABLE calificaciones (
 
 
 -- ------------------------------------------------------------
--- 11. LOG DE CONTACTOS (WhatsApp)
+-- 12. LOG DE CONTACTOS (WhatsApp)
 -- HU-12 (contacto directo)
 -- ------------------------------------------------------------
 CREATE TABLE contactos_log (
@@ -437,6 +565,9 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- anuncios            -> HU-05, HU-07, HU-08, HU-09, HU-10, HU-11
 -- media_anuncio       -> HU-06, HU-11
 -- reportes            -> HU-13
+-- reporte_evidencias  -> HU-13
+-- apelaciones_moderacion -> HU-13
+-- apelacion_evidencias   -> HU-13
 -- moderacion_log      -> HU-13
 -- admin_log           -> HU-13, HU-20
 -- transacciones       -> HU-14

@@ -231,6 +231,12 @@ class ReportarAnuncioSchema(Schema):
         validate=validate.OneOf(MOTIVOS_REPORTE),
         error_messages={"required": "El motivo es obligatorio."},
     )
+    detalle = fields.String(
+        required=False,
+        allow_none=True,
+        validate=validate.Length(max=1000),
+        load_default=None,
+    )
 
     @pre_load
     def normalizar_entrada(self, data, **kwargs):
@@ -240,6 +246,8 @@ class ReportarAnuncioSchema(Schema):
         datos = data.copy()
         if isinstance(datos.get("motivo"), str):
             datos["motivo"] = _normalizar_taxonomia(datos["motivo"])
+        if isinstance(datos.get("detalle"), str):
+            datos["detalle"] = datos["detalle"].strip()
         return datos
 
 

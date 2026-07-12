@@ -6,7 +6,7 @@ import Estrellas from '../../components/ui/Estrellas'
 import MetricaCard from '../../components/ui/MetricaCard'
 import SkeletonCard from '../../components/ui/SkeletonCard'
 import { useAuth } from '../../hooks/useAuth'
-import { formatDate } from '../../utils/format'
+import { formatDate, formatDateTime, formatImageUrl } from '../../utils/format'
 import { isValidPhone } from '../../utils/validators'
 
 const avatarPalette = [
@@ -60,6 +60,14 @@ const Panel = () => {
   const [editErrors, setEditErrors] = useState({})
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileMessage, setProfileMessage] = useState('')
+  const [moderationModalOpen, setModerationModalOpen] = useState(false)
+  const [moderationDetail, setModerationDetail] = useState(null)
+  const [moderationLoading, setModerationLoading] = useState(false)
+  const [appealMessage, setAppealMessage] = useState('')
+  const [appealFiles, setAppealFiles] = useState([])
+  const [appealError, setAppealError] = useState('')
+  const [appealSuccess, setAppealSuccess] = useState('')
+  const [submittingAppeal, setSubmittingAppeal] = useState(false)
   const activeListingsRef = useRef(null)
 
   useEffect(() => {
@@ -377,6 +385,92 @@ const Panel = () => {
     }
   }
 
+  const handleOpenModerationCase = async (anuncioId) => {
+    setModerationLoading(true)
+    setAppealError('')
+    setAppealSuccess('')
+    setAppealMessage('')
+    setAppealFiles([])
+
+    try {
+      const response = await api.get(`/usuarios/me/anuncios/${anuncioId}/moderacion`)
+      setModerationDetail(response.data.data)
+      setModerationModalOpen(true)
+    } catch (requestError) {
+      setAccionError(
+        requestError.response?.data?.mensaje ||
+          requestError.response?.data?.message ||
+          'No se pudo cargar el caso de moderacion.'
+      )
+    } finally {
+      setModerationLoading(false)
+    }
+  }
+
+  const handleSubmitAppeal = async (event) => {
+    event.preventDefault()
+    if (!moderationDetail) return
+
+    setSubmittingAppeal(true)
+    setAppealError('')
+    setAppealSuccess('')
+
+    try {
+      const formData = new FormData()
+      formData.append('mensaje', appealMessage.trim())
+      appealFiles.forEach((file) => formData.append('evidencias', file))
+
+      const response = await api.post(
+        `/usuarios/me/anuncios/${moderationDetail.anuncio_id}/apelar`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        },
+      )
+
+      setAppealSuccess(response.data.message || 'Apelacion enviada correctamente.')
+      setAppealMessage('')
+      setAppealFiles([])
+
+      const refreshed = await api.get(`/usuarios/me/anuncios/${moderationDetail.anuncio_id}/moderacion`)
+      setModerationDetail(refreshed.data.data)
+      setPanel((current) =>
+        current
+          ? {
+              ...current,
+              moderacion: {
+                casos: (current.moderacion?.casos ?? []).map((caso) =>
+                  caso.anuncio_id === moderationDetail.anuncio_id
+                    ? {
+                        ...caso,
+                        apelacion: refreshed.data.data.apelacion_actual
+                          ? {
+                              apelacion_id: refreshed.data.data.apelacion_actual.apelacion_id,
+                              estado: refreshed.data.data.apelacion_actual.estado,
+                              created_at: refreshed.data.data.apelacion_actual.created_at,
+                            }
+                          : caso.apelacion,
+                        puede_apelar: refreshed.data.data.puede_apelar,
+                      }
+                    : caso,
+                ),
+              },
+            }
+          : current,
+      )
+    } catch (requestError) {
+      setAppealError(
+        requestError.response?.data?.mensaje ||
+          requestError.response?.data?.message ||
+          'No se pudo registrar la apelacion.',
+      )
+    } finally {
+      setSubmittingAppeal(false)
+    }
+  }
+
   if (cargando) {
     return (
       <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eff6ff_35%,#f8fafc_100%)] px-4 py-8">
@@ -419,6 +513,7 @@ const Panel = () => {
 
   const { perfil, anuncios, reputacion_vendedor, reputacion_comprador, calificaciones_pendientes } =
     panel
+  const casosModeracion = panel?.moderacion?.casos ?? []
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eff6ff_35%,#f8fafc_100%)] px-4 py-8">
@@ -700,6 +795,68 @@ const Panel = () => {
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
                 Sección 5
               </p>
+              <h2 className="mt-2 text-2xl font-black text-slate-900">Moderación de mis anuncios</h2>
+            </div>
+
+            {casosModeracion.length === 0 ? (
+              <div className="rounded-[24px] bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
+                No tienes anuncios reportados, bloqueados o con apelación registrada.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {casosModeracion.map((caso) => (
+                  <article className="rounded-[24px] border border-slate-200 p-5" key={caso.anuncio_id}>
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="text-lg font-bold text-slate-900">{caso.titulo}</p>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {caso.estado_caso === 'REPORTADO_EN_REVISION'
+                            ? `Motivo del reporte: ${caso.motivo_reporte || 'En revision administrativa.'}`
+                            : `Motivo del bloqueo: ${caso.motivo_bloqueo || 'Sin detalle administrativo.'}`}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {caso.estado_caso === 'REPORTADO_EN_REVISION'
+                            ? `Ultimo reporte el ${formatDateTime(caso.ultimo_reporte_at)}`
+                            : `Bloqueado el ${formatDateTime(caso.bloqueado_at)}`}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col items-start gap-2 md:items-end">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            caso.estado_caso === 'REPORTADO_EN_REVISION'
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-rose-50 text-rose-700'
+                          }`}
+                        >
+                          {caso.estado_caso === 'REPORTADO_EN_REVISION' ? 'REPORTADO' : caso.estado_anuncio}
+                        </span>
+                        {caso.apelacion ? (
+                          <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                            Apelación {caso.apelacion.estado.toLowerCase()}
+                          </span>
+                        ) : null}
+                        <button
+                          className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                          disabled={moderationLoading}
+                          onClick={() => handleOpenModerationCase(caso.anuncio_id)}
+                          type="button"
+                        >
+                          {moderationLoading ? 'Cargando...' : 'Ver caso'}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-5">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+                Sección 6
+              </p>
               <h2 className="mt-2 text-2xl font-black text-slate-900">Accesos rápidos</h2>
             </div>
 
@@ -885,6 +1042,149 @@ const Panel = () => {
               </button>
             </div>
           </form>
+        </Modal>
+      ) : null}
+
+      {moderationModalOpen ? (
+        <Modal onClose={() => setModerationModalOpen(false)} title="Caso de moderación">
+          <div className="space-y-5">
+            <div className="rounded-[24px] bg-slate-50 p-4 text-sm text-slate-700">
+              <p className="font-semibold text-slate-900">{moderationDetail?.titulo}</p>
+              <p className="mt-1">Anuncio #{moderationDetail?.anuncio_id}</p>
+              <p className="mt-2">
+                {moderationDetail?.estado_caso === 'REPORTADO_EN_REVISION'
+                  ? 'Estado: Reportado y en revision administrativa.'
+                  : `Bloqueado por: ${moderationDetail?.motivo_bloqueo || 'Sin detalle administrativo.'}`}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Reportes recibidos
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {(moderationDetail?.reportes ?? []).map((reporte) => (
+                    <article className="rounded-[20px] border border-slate-200 p-4" key={reporte.reporte_id}>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                          {reporte.motivo}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {formatDateTime(reporte.created_at)}
+                        </span>
+                      </div>
+                      <div className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+                        {reporte.detalle?.trim() || 'El reporte no incluyó detalle adicional.'}
+                      </div>
+                      {reporte.evidencias?.length > 0 ? (
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {reporte.evidencias.map((evidencia) => (
+                            <a
+                              className="block overflow-hidden rounded-2xl border border-slate-200"
+                              href={formatImageUrl(evidencia.ruta_relativa)}
+                              key={evidencia.id}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              <img
+                                alt={`Evidencia reporte ${evidencia.id}`}
+                                className="aspect-[4/3] w-full object-cover"
+                                src={formatImageUrl(evidencia.ruta_relativa)}
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              </div>
+
+              {moderationDetail?.apelacion_actual ? (
+                <div className="rounded-[24px] border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+                  <p className="font-semibold">
+                    Tu apelación actual: {moderationDetail.apelacion_actual.estado}
+                  </p>
+                  <p className="mt-2 leading-6">{moderationDetail.apelacion_actual.mensaje}</p>
+                  {moderationDetail.apelacion_actual.respuesta_admin ? (
+                    <p className="mt-3 text-sm text-slate-700">
+                      Respuesta admin: {moderationDetail.apelacion_actual.respuesta_admin}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {moderationDetail?.estado_caso === 'REPORTADO_EN_REVISION' && !moderationDetail?.apelacion_actual ? (
+                <div className="space-y-4 rounded-[24px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <div>
+                    <p className="font-semibold">Apelación disponible cuando exista bloqueo</p>
+                    <p className="mt-2 leading-6">
+                      Tu anuncio está en revisión administrativa. Ya puedes ver el motivo y las evidencias del
+                      reporte, pero la apelación solo se habilita si el administrador decide bloquear el anuncio.
+                    </p>
+                  </div>
+                  <button
+                    className="w-full rounded-2xl bg-slate-300 px-4 py-3 text-sm font-semibold text-slate-600 opacity-90"
+                    disabled
+                    type="button"
+                  >
+                    Apelar anuncio
+                  </button>
+                </div>
+              ) : null}
+
+              {moderationDetail?.puede_apelar ? (
+                <form className="space-y-4 rounded-[24px] border border-slate-200 p-4" onSubmit={handleSubmitAppeal}>
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Presentar apelación
+                    </h3>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Explica por qué el anuncio debería rehabilitarse y adjunta hasta 3 imágenes.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <textarea
+                      className="min-h-32 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-sky-400"
+                      maxLength={1500}
+                      onChange={(event) => setAppealMessage(event.target.value)}
+                      placeholder="Describe tu descargo y aporta contexto verificable."
+                      required
+                      value={appealMessage}
+                    />
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>Mínimo 10 caracteres.</span>
+                      <span>{appealMessage.length}/1500</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <input
+                      accept="image/png,image/jpeg"
+                      className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-full file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
+                      multiple
+                      onChange={(event) => setAppealFiles(Array.from(event.target.files ?? []).slice(0, 3))}
+                      type="file"
+                    />
+                    <p className="text-xs text-slate-500">JPG o PNG, máximo 3 archivos de 5MB.</p>
+                  </div>
+
+                  {appealError ? <p className="text-sm text-rose-700">{appealError}</p> : null}
+                  {appealSuccess ? <p className="text-sm text-emerald-700">{appealSuccess}</p> : null}
+
+                  <button
+                    className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={submittingAppeal || appealMessage.trim().length < 10}
+                    type="submit"
+                  >
+                    {submittingAppeal ? 'Enviando apelación...' : 'Enviar apelación'}
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          </div>
         </Modal>
       ) : null}
     </div>

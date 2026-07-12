@@ -371,14 +371,22 @@ def reemplazar_media_controller(anuncio_id, media_id):
 
 
 def reportar_anuncio_controller(anuncio_id):
-    request_data = request.get_json(silent=True) or {}
+    request_data = _extraer_body_reportar_anuncio()
     schema = ReportarAnuncioSchema()
 
     try:
         datos_validados = schema.load(request_data, unknown=RAISE)
         anuncio_id_int = _parse_positive_int(anuncio_id, "anuncio_id")
         usuario_id = int(get_jwt_identity())
-        respuesta = AnuncioService.reportar_anuncio(anuncio_id_int, usuario_id, datos_validados["motivo"])
+        evidencias = request.files.getlist("evidencias")
+        respuesta = AnuncioService.reportar_anuncio(
+            anuncio_id_int,
+            usuario_id,
+            datos_validados["motivo"],
+            detalle=datos_validados.get("detalle"),
+            evidencias=evidencias,
+            upload_folder=current_app.config["UPLOAD_FOLDER"],
+        )
     except ValidationError as error:
         return jsonify({
             "success": False,
@@ -427,9 +435,13 @@ def _status_for_anuncio_response(respuesta, success_status):
         "NOT_FOUND": 404,
         "CONFLICT": 409,
         "FILE_TOO_LARGE": 413,
+        "REPORT_EVIDENCE_TOO_LARGE": 413,
         "SELLER_WITHOUT_PHONE": 422,
         "INVALID_FILE_TYPE": 422,
+        "INVALID_REPORT_EVIDENCE": 422,
+        "INVALID_REPORT_EVIDENCE_TYPE": 422,
         "TOO_MANY_FILES": 422,
+        "TOO_MANY_REPORT_EVIDENCES": 422,
         "VALIDATION_ERROR": 422,
         "RATE_LIMIT_DIARIO": 429,
         "RATE_LIMIT_ANUNCIO": 429,
@@ -505,3 +517,12 @@ def _status_for_search_validation(messages):
     if "q" in messages:
         return 400
     return 422
+
+
+def _extraer_body_reportar_anuncio():
+    if request.content_type and request.content_type.startswith("multipart/form-data"):
+        return {
+            "motivo": request.form.get("motivo"),
+            "detalle": request.form.get("detalle"),
+        }
+    return request.get_json(silent=True) or {}

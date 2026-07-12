@@ -215,6 +215,50 @@ class ActualizarPerfilSchema(Schema):
         return datos
 
 
+class ApelarModeracionSchema(Schema):
+    mensaje = fields.String(
+        required=True,
+        allow_none=False,
+        validate=validate.Length(min=10, max=1500),
+        error_messages={"required": "El mensaje de apelacion es obligatorio."},
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
+
+        datos = data.copy()
+        if isinstance(datos.get("mensaje"), str):
+            datos["mensaje"] = datos["mensaje"].strip()
+        return datos
+
+
+class ResolverApelacionAdminSchema(Schema):
+    decision = fields.String(
+        required=True,
+        validate=validate.OneOf(("ACEPTAR", "RECHAZAR")),
+        error_messages={"required": "La decision es obligatoria."},
+    )
+    motivo_admin = fields.String(
+        required=True,
+        validate=validate.Length(min=1, max=500),
+        error_messages={"required": "El motivo administrativo es obligatorio."},
+    )
+
+    @pre_load
+    def normalizar_entrada(self, data, **kwargs):
+        if not isinstance(data, dict):
+            raise ValidationError(JSON_BODY_REQUIRED_MESSAGE)
+
+        datos = data.copy()
+        if isinstance(datos.get("decision"), str):
+            datos["decision"] = datos["decision"].strip().upper()
+        if isinstance(datos.get("motivo_admin"), str):
+            datos["motivo_admin"] = datos["motivo_admin"].strip()
+        return datos
+
+
 class AdminUsuariosFiltroSchema(Schema):
     estado = fields.String(
         required=False,

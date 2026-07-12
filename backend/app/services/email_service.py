@@ -50,6 +50,36 @@ class EmailService:
         )
 
     @staticmethod
+    def send_listing_reported_email(app, recipient, *, titulo_anuncio, motivo, detalle=None):
+        frontend_url = app.config.get("FRONTEND_URL") or "http://localhost:5173"
+        panel_link = f"{frontend_url}/usuario/panel"
+        subject = "Tu anuncio recibio un reporte"
+        body = (
+            "Hola,\n\n"
+            "Te informamos que uno de tus anuncios fue reportado en HardwareAyacucho.\n\n"
+            f"Anuncio: {titulo_anuncio}\n"
+            f"Motivo: {motivo}\n"
+        )
+        if detalle:
+            body += f"Detalle reportado: {detalle}\n"
+        body += (
+            f"\nPuedes revisar el estado desde tu panel: {panel_link}\n\n"
+            "Este aviso no implica sancion automatica. El caso quedara sujeto a revision administrativa.\n"
+        )
+        EmailService._deliver_email(
+            app,
+            recipient=recipient,
+            subject=subject,
+            body=body,
+            metadata={
+                "kind": "listing_reported",
+                "listing_title": titulo_anuncio,
+                "reason": motivo,
+                "link": panel_link,
+            },
+        )
+
+    @staticmethod
     def _deliver_email(app, recipient, subject, body, metadata):
         mode = app.config.get("EMAIL_DELIVERY_MODE", "log")
         prefixed_subject = EmailService._build_subject(app, subject)

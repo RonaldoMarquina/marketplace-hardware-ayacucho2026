@@ -89,7 +89,13 @@ No incluir: despliegue ni login con Google.
 Este documento es temporal y puede eliminarse cuando el flujo de OpenSpec ya
 forme parte del trabajo normal del proyecto.
 
-Lo que falta
-despliegue
-produccion publica
-Google login
+## Recordatorio rapido del backlog
+
+- despliegue
+- produccion publica
+- Google login
+
+## Recordatorio rapido de QA futuro
+
+- Security Hotspots Reviewed = 100%
+- Maintainability A on New Code

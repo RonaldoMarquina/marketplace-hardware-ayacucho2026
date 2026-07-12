@@ -1,4 +1,5 @@
 from app.repositories.usuario_repository import UsuarioRepository
+from app.services.anuncio_service import AnuncioService
 
 
 MAX_ANUNCIOS_ACTIVOS_USER_ESTANDAR = 25
@@ -135,6 +136,9 @@ class UsuarioService:
                     "total_compras": total_compras,
                 },
                 "calificaciones_pendientes": calificaciones_pendientes,
+                "moderacion": {
+                    "casos": AnuncioService.obtener_casos_moderacion_propietario(usuario_id)["data"],
+                },
             },
             "error": None,
             "message": "Panel del usuario obtenido correctamente.",

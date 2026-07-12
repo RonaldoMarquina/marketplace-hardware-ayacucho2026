@@ -38,6 +38,8 @@ estatico y endurecimiento de calidad antes de despliegue.
 - el proyecto debe distinguir entre una validacion rapida para iteraciones
   cortas y una validacion completa previa a despliegue
 - el backend debe contar con analisis estatico de seguridad usando `Bandit`
+- SonarQube debe usarse como tablero global complementario para cobertura,
+  duplicacion, fiabilidad y mantenibilidad
 
 ## Reglas tecnicas clave
 
@@ -47,6 +49,11 @@ estatico y endurecimiento de calidad antes de despliegue.
 - la documentacion tecnica debe reflejar el flujo real de QA hardening
 - la ejecucion local debe documentar limitaciones o ajustes dependientes del
   entorno, especialmente en Windows
+- si la instancia local de SonarQube no permite administrar quality gates de
+  forma confiable, el proyecto no debe bloquear el cierre QA por esa limitacion
+- cualquier criterio de `New Code` o quality gates debe tratarse como referencia
+  futura o configuracion deseable, no como prerrequisito operativo del flujo
+  local actual
 
 ## Artefactos vinculados
 
@@ -66,3 +73,30 @@ estatico y endurecimiento de calidad antes de despliegue.
 - Pylint para calidad estatica general del backend
 - Bandit para patrones de seguridad especificos de Python
 - SonarQube para consolidacion final del analisis local
+
+## Uso operativo de SonarQube
+
+- SonarQube se usa como tablero global de apoyo para revisar:
+  cobertura, duplicacion, fiabilidad, mantenibilidad y hotspots
+- el control operativo principal del proyecto sigue siendo:
+  `PyTest`, cobertura, `Pylint` y `Bandit`
+- si la instancia local permite quality gates sanas, el equipo puede usar
+  criterios sobre `New Code` como recomendacion complementaria
+- si la instancia local presenta limitaciones de permisos o de interfaz, el
+  equipo debe documentar esa restriccion y continuar usando SonarQube como
+  evidencia global no bloqueante
+
+## Referencias futuras no obligatorias
+
+- si mas adelante el equipo estabiliza una instancia administrable de SonarQube,
+  puede retomar quality gates sobre `New Code`
+- ejemplos razonables de referencia futura incluyen:
+  `No new Blocker issues`, `No new Critical issues`, `Coverage >= 80%`,
+  `Duplicated Lines <= 3%`, `Security Hotspots Reviewed = 100%` y
+  `Maintainability A` en codigo nuevo
+
+## Nota metodologica
+
+- para este proyecto de ciclo completo, la imposibilidad de operacionalizar una
+  quality gate local no invalida el QA si el equipo conserva evidencia clara de
+  pruebas, cobertura, `Pylint`, `Bandit` y analisis global en SonarQube

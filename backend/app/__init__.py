@@ -41,18 +41,17 @@ def _resolve_app_secret(*env_names, allow_ephemeral=False):
     )
 
 
-def create_app(test_config=None):
-    # Carga el .env del backend de forma estable, sin depender de la carpeta
-    # desde donde ejecutes Flask, PyTest o scripts manuales.
-    backend_dir = Path(__file__).resolve().parent.parent
-    load_dotenv(backend_dir / ".env")
-    testing_mode = bool(test_config and test_config.get("TESTING"))
-    production_mode = os.getenv("FLASK_ENV", "").lower() == "production"
+def _configure_app(app, backend_dir, testing_mode, production_mode):
+    upload_folder = Path(
+        os.getenv(
+            "UPLOAD_FOLDER",
+            str(backend_dir / "uploads"),
+        )
+    )
+    if not upload_folder.is_absolute():
+        workspace_dir = backend_dir.parent
+        upload_folder = workspace_dir / upload_folder
 
-    app = Flask(__name__)
-    # La app usa JWT en el header Authorization y no autenticacion basada en
-    # cookies del navegador; por eso endurecemos cookies de sesion y evitamos
-    # depender de formularios server-rendered con estado compartido.
     app.secret_key = _resolve_app_secret(
         "FLASK_APP_SECRET",
         "JWT_SECRET",
@@ -74,10 +73,7 @@ def create_app(test_config=None):
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     app.config["SESSION_COOKIE_SECURE"] = production_mode
-    app.config["UPLOAD_FOLDER"] = os.getenv(
-        "UPLOAD_FOLDER",
-        str(backend_dir / "uploads"),
-    )
+    app.config["UPLOAD_FOLDER"] = str(upload_folder.resolve())
     app.config["MAX_DOCUMENT_SIZE"] = 5 * 1024 * 1024
     app.config["FRONTEND_URL"] = os.getenv("FRONTEND_URL", "http://localhost:5173")
     app.config["EMAIL_DELIVERY_MODE"] = os.getenv(
@@ -85,7 +81,10 @@ def create_app(test_config=None):
         "testing" if testing_mode else "log",
     ).strip().lower()
     app.config["EMAIL_PUBLIC_PRODUCTION"] = _env_flag("EMAIL_PUBLIC_PRODUCTION", False)
-    app.config["EMAIL_FROM"] = os.getenv("EMAIL_FROM", "no-reply@hardwareayacucho.local")
+    app.config["EMAIL_FROM"] = os.getenv(
+        "EMAIL_FROM",
+        "no-reply@hardwareayacucho.local",
+    )
     app.config["EMAIL_SUBJECT_PREFIX"] = os.getenv(
         "EMAIL_SUBJECT_PREFIX",
         "[HardwareAyacucho]",
@@ -98,20 +97,8 @@ def create_app(test_config=None):
     app.config["SMTP_USE_SSL"] = _env_flag("SMTP_USE_SSL", False)
     app.config["SMTP_TIMEOUT_SECONDS"] = int(os.getenv("SMTP_TIMEOUT_SECONDS", "15"))
 
-    if test_config:
-        app.config.update(test_config)
 
-    app.extensions.setdefault("mail_outbox", [])
-    _validate_email_config(app)
-
-    db.init_app(app)
-    jwt.init_app(app)
-    cors.init_app(app)
-    migrate.init_app(app, db)
-    csrf.init_app(app)
-
-    _registrar_manejadores_jwt(jwt)
-
+def _register_blueprints(app):
     from app.routes.admin import admin_bp
     from app.routes.anuncios import anuncios_bp
     from app.routes.auth import auth_bp
@@ -131,6 +118,36 @@ def create_app(test_config=None):
     csrf.exempt(transacciones_bp)
     csrf.exempt(usuarios_bp)
 
+
+def create_app(test_config=None):
+    # Carga el .env del backend de forma estable, sin depender de la carpeta
+    # desde donde ejecutes Flask, PyTest o scripts manuales.
+    backend_dir = Path(__file__).resolve().parent.parent
+    load_dotenv(backend_dir / ".env")
+    testing_mode = bool(test_config and test_config.get("TESTING"))
+    production_mode = os.getenv("FLASK_ENV", "").lower() == "production"
+
+    app = Flask(__name__)
+    # La app usa JWT en el header Authorization y no autenticacion basada en
+    # cookies del navegador; por eso endurecemos cookies de sesion y evitamos
+    # depender de formularios server-rendered con estado compartido.
+    _configure_app(app, backend_dir, testing_mode, production_mode)
+
+    if test_config:
+        app.config.update(test_config)
+
+    app.extensions.setdefault("mail_outbox", [])
+    _validate_email_config(app)
+
+    db.init_app(app)
+    jwt.init_app(app)
+    cors.init_app(app)
+    migrate.init_app(app, db)
+    csrf.init_app(app)
+
+    _registrar_manejadores_jwt(jwt)
+    _register_blueprints(app)
+
     @app.route("/uploads/<path:filename>")
     def servir_upload(filename):
         return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
@@ -148,7 +165,8 @@ def _validate_email_config(app):
 
     if email_mode != "smtp" and app.config.get("EMAIL_PUBLIC_PRODUCTION"):
         raise RuntimeError(
-            "La produccion publica requiere EMAIL_DELIVERY_MODE=smtp con configuracion real de correo."
+            "La produccion publica requiere EMAIL_DELIVERY_MODE=smtp "
+            "con configuracion real de correo."
         )
 
     if email_mode != "smtp":
@@ -165,7 +183,9 @@ def _validate_email_config(app):
         )
 
     if app.config.get("SMTP_USE_TLS") and app.config.get("SMTP_USE_SSL"):
-        raise RuntimeError("SMTP_USE_TLS y SMTP_USE_SSL no pueden estar activos a la vez.")
+        raise RuntimeError(
+            "SMTP_USE_TLS y SMTP_USE_SSL no pueden estar activos a la vez."
+        )
 
 
 def _registrar_manejadores_jwt(jwt_manager):

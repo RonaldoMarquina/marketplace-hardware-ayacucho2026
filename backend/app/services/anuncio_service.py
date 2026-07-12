@@ -13,13 +13,29 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.anuncio import SUBCATEGORIAS_POR_CATEGORIA, Anuncio
 from app.models.admin_log import AdminLog
+from app.models.apelacion_evidencia import ApelacionEvidencia
+from app.models.apelacion_moderacion import ApelacionModeracion
 from app.models.contacto_log import ContactoLog
 from app.models.media_anuncio import MediaAnuncio
 from app.models.moderacion_log import ModeracionLog
 from app.models.reporte import Reporte
+from app.models.reporte_evidencia import ReporteEvidencia
 from app.models.transaccion import Transaccion
 from app.repositories.anuncio_repository import AnuncioRepository
+from app.services.email_service import EmailService
+from app.utils.apelacion_evidence_validation import (
+    AppealEvidenceValidationError,
+    delete_appeal_evidences,
+    persist_appeal_evidences,
+    validate_appeal_evidences,
+)
 from app.utils.media_validation import MediaValidationError, classify_media, validate_and_store_media
+from app.utils.reporte_evidence_validation import (
+    ReportEvidenceValidationError,
+    delete_report_evidences,
+    persist_report_evidences,
+    validate_report_evidences,
+)
 
 
 EDITABLE_FIELDS = {
@@ -39,6 +55,8 @@ MAX_VIDEOS_POR_ANUNCIO = 1
 MAX_CONTACTOS_DIARIOS = 20
 CONTACTO_RETRY_MINUTES = 60
 MAX_REPORTES_DIARIOS = 10
+PRIORIDAD_ALTA_MIN_SCORE = 70
+PRIORIDAD_MEDIA_MIN_SCORE = 40
 try:
     PERU_TIMEZONE = ZoneInfo("America/Lima")
 except ZoneInfoNotFoundError:
@@ -552,7 +570,7 @@ class AnuncioService:
             return _error_response("DATABASE_ERROR", "No se pudo reactivar el anuncio.")
 
     @staticmethod
-    def reportar_anuncio(anuncio_id, comprador_id, motivo):
+    def reportar_anuncio(anuncio_id, comprador_id, motivo, detalle=None, evidencias=None, upload_folder=None):
         usuario = AnuncioRepository.buscar_usuario_por_id(comprador_id)
         if not usuario or usuario.estado != "ACTIVO":
             return _error_response("FORBIDDEN", "La cuenta debe estar activa para reportar anuncios.")
@@ -586,39 +604,98 @@ class AnuncioService:
                 {"disponible_en": day_end.isoformat()},
             )
 
+        evidencias_validadas = []
         try:
             reporte = Reporte(
                 comprador_id=comprador_id,
                 anuncio_id=anuncio_id,
                 motivo=motivo,
+                detalle=detalle or None,
                 estado="PENDIENTE",
                 created_at=_utcnow_naive(),
             )
             AnuncioRepository.agregar_reporte(reporte)
+            AnuncioRepository.flush()
+
+            if evidencias:
+                evidencias_validadas = validate_report_evidences(
+                    evidencias,
+                    upload_folder,
+                    reporte.id,
+                )
+                persist_report_evidences(evidencias_validadas)
+                for item in evidencias_validadas:
+                    evidencia = ReporteEvidencia(
+                        reporte_id=reporte.id,
+                        tipo_archivo=item["tipo_archivo"],
+                        ruta_relativa=item["relative_path"],
+                    )
+                    AnuncioRepository.agregar_reporte_evidencia(evidencia)
+
             AnuncioRepository.commit()
+            vendedor = AnuncioRepository.buscar_usuario_por_id(anuncio.usuario_id)
+            if vendedor and vendedor.correo:
+                AnuncioService._enviar_correo_anuncio_reportado_async(
+                    vendedor.correo,
+                    anuncio.titulo,
+                    reporte.motivo,
+                    reporte.detalle,
+                )
             return {
                 "success": True,
                 "data": {
                     "reporte_id": reporte.id,
                     "anuncio_id": anuncio_id,
                     "motivo": reporte.motivo,
+                    "detalle": reporte.detalle,
                     "estado": reporte.estado,
                     "created_at": reporte.created_at.isoformat() if reporte.created_at else None,
+                    "evidencias": [evidencia.to_public_dict() for evidencia in reporte.evidencias],
                 },
                 "error": None,
                 "message": "Reporte registrado correctamente.",
             }
+        except ReportEvidenceValidationError as error:
+            AnuncioRepository.rollback()
+            delete_report_evidences(evidencias_validadas)
+            return _error_response(error.error_code, error.message)
         except SQLAlchemyError:
             AnuncioRepository.rollback()
+            delete_report_evidences(evidencias_validadas)
             return _error_response("DATABASE_ERROR", "No se pudo registrar el reporte.")
 
     @staticmethod
     def listar_anuncios_reportados(page, limit):
-        offset = (page - 1) * limit
-        registros, total = AnuncioRepository.listar_anuncios_reportados(offset, limit)
+        registros, total = AnuncioRepository.listar_anuncios_reportados()
+        anuncio_ids = [item.anuncio_id for item in registros]
+        reportes_pendientes = AnuncioRepository.listar_reportes_pendientes_para_anuncios(anuncio_ids)
+        perfiles_reportantes = _build_reporter_profiles(reportes_pendientes)
+        reportes_por_anuncio = defaultdict(list)
+        for row in reportes_pendientes:
+            reportes_por_anuncio[row.Reporte.anuncio_id].append(row)
+
+        reporte_ids = [row.Reporte.id for row in reportes_pendientes]
+        evidencias = AnuncioRepository.listar_evidencias_reporte(reporte_ids)
+        evidencias_por_reporte = defaultdict(int)
+        for evidencia in evidencias:
+            evidencias_por_reporte[evidencia.reporte_id] += 1
 
         data = []
         for item in registros:
+            reportes_del_caso = reportes_por_anuncio.get(item.anuncio_id, [])
+            senales_operativas = _build_case_operational_signals(reportes_del_caso, perfiles_reportantes)
+            prioridad_score = _build_case_priority_score(
+                total_reportes=item.total_reportes,
+                motivos=item.motivos.split(",") if item.motivos else [],
+                reportes_del_caso=reportes_del_caso,
+                perfiles_reportantes=perfiles_reportantes,
+                evidencias_por_reporte=evidencias_por_reporte,
+            )
+            reportantes_distintos = {
+                row.Reporte.comprador_id
+                for row in reportes_del_caso
+            }
+            confiabilidad_promedio = _build_average_reporter_score(reportantes_distintos, perfiles_reportantes)
             data.append({
                 "anuncio_id": item.anuncio_id,
                 "titulo": item.titulo,
@@ -631,6 +708,339 @@ class AnuncioService:
                 "total_reportes": item.total_reportes,
                 "motivos": item.motivos.split(",") if item.motivos else [],
                 "ultimo_reporte": item.ultimo_reporte.isoformat() if item.ultimo_reporte else None,
+                "prioridad_score": prioridad_score,
+                "prioridad_nivel": _priority_level_for_score(prioridad_score),
+                "senales_operativas": senales_operativas,
+                "reportantes_distintos": len(reportantes_distintos),
+                "confiabilidad_promedio_reportantes": confiabilidad_promedio,
+            })
+
+        data.sort(
+            key=lambda item: (
+                item["prioridad_score"],
+                item["confiabilidad_promedio_reportantes"],
+                item["total_reportes"],
+                item["ultimo_reporte"] or "",
+            ),
+            reverse=True,
+        )
+
+        offset = (page - 1) * limit
+        page_data = data[offset:offset + limit]
+        total_paginas = ceil(total / limit) if total else 0
+        return {
+            "success": True,
+            "data": page_data,
+            "error": None,
+            "message": "Anuncios reportados obtenidos correctamente.",
+            "total_pendientes": total,
+            "metricas_operativas": {
+                "alta_prioridad": sum(1 for item in data if item["prioridad_nivel"] == "ALTA"),
+                "con_senales_abuso": sum(1 for item in data if item["senales_operativas"]),
+            },
+            "paginacion": {
+                "total": total,
+                "pagina_actual": page,
+                "total_paginas": total_paginas,
+                "limit": limit,
+                "tiene_siguiente": page < total_paginas,
+                "tiene_anterior": page > 1 and total > 0,
+            },
+        }
+
+    @staticmethod
+    def obtener_detalle_anuncio_reportado(anuncio_id):
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
+        if not anuncio:
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
+
+        reportes = AnuncioRepository.listar_reportes_por_anuncio(anuncio_id)
+        if not reportes:
+            return _error_response("NOT_FOUND", "No hay reportes registrados para este anuncio.")
+
+        reportes_pendientes = AnuncioRepository.listar_reportes_pendientes_para_anuncios([anuncio_id])
+        perfiles_reportantes = _build_reporter_profiles(reportes_pendientes)
+        reporte_ids = [reporte.id for reporte in reportes]
+        evidencias = AnuncioRepository.listar_evidencias_reporte(reporte_ids)
+        evidencias_por_reporte = defaultdict(list)
+        for evidencia in evidencias:
+            evidencias_por_reporte[evidencia.reporte_id].append(evidencia.to_public_dict())
+
+        reportes_con_comprador = {
+            reporte.id: {
+                "id": reporte.comprador_id,
+                "nombre": comprador_nombre,
+                "correo": comprador_correo,
+                "estado": comprador_estado,
+            }
+            for reporte, comprador_nombre, comprador_correo, comprador_estado in
+            AnuncioRepository.listar_reportes_por_anuncio_con_comprador(anuncio_id)
+        }
+
+        data = []
+        for reporte in reportes:
+            data.append({
+                "reporte_id": reporte.id,
+                "motivo": reporte.motivo,
+                "detalle": reporte.detalle,
+                "estado": reporte.estado,
+                "created_at": reporte.created_at.isoformat() if reporte.created_at else None,
+                "comprador": reportes_con_comprador.get(reporte.id),
+                "evidencias": evidencias_por_reporte.get(reporte.id, []),
+                "senal_reportante": perfiles_reportantes.get(reporte.comprador_id),
+            })
+
+        apelaciones = AnuncioRepository.listar_apelaciones_por_anuncio(anuncio_id)
+        apelacion_ids = [apelacion.id for apelacion, *_ in apelaciones]
+        evidencias_apelacion = AnuncioRepository.listar_evidencias_apelacion(apelacion_ids)
+        evidencias_apelacion_por_id = defaultdict(list)
+        for evidencia in evidencias_apelacion:
+            evidencias_apelacion_por_id[evidencia.apelacion_id].append(evidencia.to_public_dict())
+
+        apelaciones_data = []
+        for apelacion, usuario_nombre, usuario_correo, usuario_rol in apelaciones:
+            apelaciones_data.append({
+                "apelacion_id": apelacion.id,
+                "estado": apelacion.estado,
+                "mensaje": apelacion.mensaje,
+                "respuesta_admin": apelacion.respuesta_admin,
+                "created_at": apelacion.created_at.isoformat() if apelacion.created_at else None,
+                "resolved_at": apelacion.resolved_at.isoformat() if apelacion.resolved_at else None,
+                "usuario": {
+                    "id": apelacion.usuario_id,
+                    "nombre": usuario_nombre,
+                    "correo": usuario_correo,
+                    "rol": usuario_rol,
+                },
+                "evidencias": evidencias_apelacion_por_id.get(apelacion.id, []),
+            })
+
+        prioridad_score = _build_case_priority_score(
+            total_reportes=sum(1 for reporte in reportes if reporte.estado == "PENDIENTE"),
+            motivos=[reporte.motivo for reporte in reportes if reporte.estado == "PENDIENTE"],
+            reportes_del_caso=reportes_pendientes,
+            perfiles_reportantes=perfiles_reportantes,
+            evidencias_por_reporte={
+                reporte_id: len(items)
+                for reporte_id, items in evidencias_por_reporte.items()
+            },
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "anuncio_id": anuncio.id,
+                "titulo": anuncio.titulo,
+                "estado_anuncio": anuncio.estado,
+                "total_reportes_pendientes": sum(1 for reporte in reportes if reporte.estado == "PENDIENTE"),
+                "prioridad_score": prioridad_score,
+                "prioridad_nivel": _priority_level_for_score(prioridad_score),
+                "senales_operativas": _build_case_operational_signals(reportes_pendientes, perfiles_reportantes),
+                "reportes": data,
+                "apelaciones": apelaciones_data,
+            },
+            "error": None,
+            "message": "Detalle de reportes obtenido correctamente.",
+        }
+
+    @staticmethod
+    def obtener_casos_moderacion_propietario(usuario_id):
+        registros = AnuncioRepository.listar_anuncios_bloqueados_o_apelados_por_usuario(usuario_id)
+
+        data = []
+        for item in registros:
+            puede_apelar = item.estado_anuncio == "BLOQUEADO" and item.apelacion_estado is None
+            estado_caso = "REPORTADO_EN_REVISION"
+            if item.apelacion_id:
+                estado_caso = f"APELACION_{item.apelacion_estado}"
+            elif item.estado_anuncio == "BLOQUEADO":
+                estado_caso = "BLOQUEADO"
+            data.append({
+                "anuncio_id": item.anuncio_id,
+                "titulo": item.titulo,
+                "estado_anuncio": item.estado_anuncio,
+                "estado_caso": estado_caso,
+                "motivo_bloqueo": item.motivo_bloqueo,
+                "bloqueado_at": item.bloqueado_at.isoformat() if item.bloqueado_at else None,
+                "motivo_reporte": item.motivo_reporte,
+                "ultimo_reporte_at": item.ultimo_reporte_at.isoformat() if item.ultimo_reporte_at else None,
+                "total_reportes_pendientes": item.total_reportes_pendientes or 0,
+                "apelacion": (
+                    {
+                        "apelacion_id": item.apelacion_id,
+                        "estado": item.apelacion_estado,
+                        "created_at": item.apelacion_created_at.isoformat()
+                        if item.apelacion_created_at
+                        else None,
+                    }
+                    if item.apelacion_id
+                    else None
+                ),
+                "puede_apelar": puede_apelar,
+            })
+
+        return {
+            "success": True,
+            "data": data,
+            "error": None,
+            "message": "Casos de moderacion obtenidos correctamente.",
+        }
+
+    @staticmethod
+    def obtener_detalle_caso_moderacion_propietario(anuncio_id, usuario_id):
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
+        if not anuncio or anuncio.usuario_id != usuario_id:
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
+
+        ultimo_bloqueo = AnuncioRepository.buscar_ultimo_bloqueo_anuncio(anuncio_id)
+        reportes = AnuncioRepository.listar_reportes_por_anuncio(anuncio_id)
+        reportes_pendientes = [reporte for reporte in reportes if reporte.estado == "PENDIENTE"]
+        if not ultimo_bloqueo and not reportes_pendientes:
+            return _error_response("NOT_FOUND", "No existe un caso de moderacion para este anuncio.")
+        reporte_ids = [reporte.id for reporte in reportes]
+        evidencias = AnuncioRepository.listar_evidencias_reporte(reporte_ids)
+        evidencias_por_reporte = defaultdict(list)
+        for evidencia in evidencias:
+            evidencias_por_reporte[evidencia.reporte_id].append(evidencia.to_public_dict())
+
+        apelaciones = AnuncioRepository.listar_apelaciones_por_anuncio(anuncio_id)
+        apelacion_ids = [apelacion.id for apelacion, *_ in apelaciones]
+        evidencias_apelacion = AnuncioRepository.listar_evidencias_apelacion(apelacion_ids)
+        evidencias_apelacion_por_id = defaultdict(list)
+        for evidencia in evidencias_apelacion:
+            evidencias_apelacion_por_id[evidencia.apelacion_id].append(evidencia.to_public_dict())
+
+        data_reportes = []
+        for reporte in reportes:
+            data_reportes.append({
+                "reporte_id": reporte.id,
+                "motivo": reporte.motivo,
+                "detalle": reporte.detalle,
+                "estado": reporte.estado,
+                "created_at": reporte.created_at.isoformat() if reporte.created_at else None,
+                "evidencias": evidencias_por_reporte.get(reporte.id, []),
+            })
+
+        data_apelaciones = []
+        for apelacion, *_ in apelaciones:
+            data_apelaciones.append({
+                "apelacion_id": apelacion.id,
+                "mensaje": apelacion.mensaje,
+                "estado": apelacion.estado,
+                "respuesta_admin": apelacion.respuesta_admin,
+                "created_at": apelacion.created_at.isoformat() if apelacion.created_at else None,
+                "resolved_at": apelacion.resolved_at.isoformat() if apelacion.resolved_at else None,
+                "evidencias": evidencias_apelacion_por_id.get(apelacion.id, []),
+            })
+
+        apelacion_actual = next((item for item in data_apelaciones if item["estado"] == "PENDIENTE"), None)
+        if apelacion_actual is None and data_apelaciones:
+            apelacion_actual = data_apelaciones[0]
+
+        estado_caso = "REPORTADO_EN_REVISION"
+        if apelacion_actual is not None:
+            estado_caso = f"APELACION_{apelacion_actual['estado']}"
+        elif anuncio.estado == "BLOQUEADO":
+            estado_caso = "BLOQUEADO"
+
+        return {
+            "success": True,
+            "data": {
+                "anuncio_id": anuncio.id,
+                "titulo": anuncio.titulo,
+                "estado_anuncio": anuncio.estado,
+                "estado_caso": estado_caso,
+                "motivo_bloqueo": ultimo_bloqueo.motivo_admin if ultimo_bloqueo else None,
+                "bloqueado_at": (
+                    ultimo_bloqueo.created_at.isoformat() if ultimo_bloqueo and ultimo_bloqueo.created_at else None
+                ),
+                "puede_apelar": anuncio.estado == "BLOQUEADO" and apelacion_actual is None,
+                "reportes": data_reportes,
+                "apelacion_actual": apelacion_actual,
+                "apelaciones": data_apelaciones,
+            },
+            "error": None,
+            "message": "Detalle del caso de moderacion obtenido correctamente.",
+        }
+
+    @staticmethod
+    def apelar_moderacion(anuncio_id, usuario_id, mensaje, evidencias=None, upload_folder=None):
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(anuncio_id)
+        if not anuncio or anuncio.usuario_id != usuario_id:
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
+        if anuncio.estado != "BLOQUEADO":
+            return _error_response("CONFLICT", "Solo se puede apelar un anuncio bloqueado.")
+
+        ultimo_bloqueo = AnuncioRepository.buscar_ultimo_bloqueo_anuncio(anuncio_id)
+        if not ultimo_bloqueo:
+            return _error_response("CONFLICT", "No existe un bloqueo vigente para este anuncio.")
+
+        apelacion_existente = AnuncioRepository.buscar_apelacion_en_ciclo(
+            anuncio_id,
+            usuario_id,
+            ultimo_bloqueo.created_at,
+        )
+        if apelacion_existente:
+            return _error_response(
+                "CONFLICT",
+                "Ya existe una apelacion registrada para este ciclo de bloqueo.",
+            )
+
+        validated_evidences = []
+        try:
+            apelacion = ApelacionModeracion(
+                anuncio_id=anuncio_id,
+                usuario_id=usuario_id,
+                mensaje=mensaje,
+                estado="PENDIENTE",
+                created_at=_utcnow_naive(),
+            )
+            AnuncioRepository.agregar_apelacion(apelacion)
+            AnuncioRepository.flush()
+
+            if evidencias and upload_folder:
+                validated_evidences = validate_appeal_evidences(evidencias, upload_folder, apelacion.id)
+                persist_appeal_evidences(validated_evidences)
+                for item in validated_evidences:
+                    evidencia = ApelacionEvidencia(
+                        apelacion_id=apelacion.id,
+                        tipo_archivo=item["tipo_archivo"],
+                        ruta_relativa=item["relative_path"],
+                    )
+                    AnuncioRepository.agregar_apelacion_evidencia(evidencia)
+
+            AnuncioRepository.commit()
+            return {
+                "success": True,
+                "data": apelacion.to_public_dict(),
+                "error": None,
+                "message": "Apelacion registrada correctamente.",
+            }
+        except AppealEvidenceValidationError as error:
+            AnuncioRepository.rollback()
+            delete_appeal_evidences(validated_evidences)
+            return _error_response(error.error_code, error.message)
+        except SQLAlchemyError:
+            AnuncioRepository.rollback()
+            delete_appeal_evidences(validated_evidences)
+            return _error_response("DATABASE_ERROR", "No se pudo registrar la apelacion.")
+
+    @staticmethod
+    def listar_apelaciones_pendientes(page, limit):
+        offset = (page - 1) * limit
+        registros, total = AnuncioRepository.listar_apelaciones_pendientes(offset, limit)
+
+        data = []
+        for apelacion, titulo, estado_anuncio, usuario_nombre, usuario_rol in registros:
+            data.append({
+                "apelacion_id": apelacion.id,
+                "anuncio_id": apelacion.anuncio_id,
+                "titulo": titulo,
+                "estado_anuncio": estado_anuncio,
+                "mensaje": apelacion.mensaje,
+                "created_at": apelacion.created_at.isoformat() if apelacion.created_at else None,
+                "usuario_nombre": usuario_nombre,
+                "es_tienda_verificada": usuario_rol == "TIENDA_VERIFICADA",
             })
 
         total_paginas = ceil(total / limit) if total else 0
@@ -638,7 +1048,7 @@ class AnuncioService:
             "success": True,
             "data": data,
             "error": None,
-            "message": "Anuncios reportados obtenidos correctamente.",
+            "message": "Apelaciones pendientes obtenidas correctamente.",
             "total_pendientes": total,
             "paginacion": {
                 "total": total,
@@ -649,6 +1059,67 @@ class AnuncioService:
                 "tiene_anterior": page > 1 and total > 0,
             },
         }
+
+    @staticmethod
+    def resolver_apelacion_admin(apelacion_id, admin_id, decision, motivo_admin):
+        apelacion = AnuncioRepository.buscar_apelacion_por_id(apelacion_id)
+        if not apelacion:
+            return _error_response("NOT_FOUND", "Apelacion no encontrada.")
+        if apelacion.estado != "PENDIENTE":
+            return _error_response("CONFLICT", "La apelacion ya fue resuelta.")
+
+        anuncio = AnuncioRepository.buscar_anuncio_por_id(apelacion.anuncio_id)
+        if not anuncio:
+            return _error_response("NOT_FOUND", ANUNCIO_NOT_FOUND_MESSAGE)
+        if decision == "ACEPTAR" and anuncio.estado != "BLOQUEADO":
+            return _error_response(
+                "CONFLICT",
+                "Solo se puede aceptar una apelacion si el anuncio sigue bloqueado.",
+            )
+
+        try:
+            apelacion.estado = "ACEPTADA" if decision == "ACEPTAR" else "RECHAZADA"
+            apelacion.respuesta_admin = motivo_admin
+            apelacion.resolved_at = _utcnow_naive()
+
+            if decision == "ACEPTAR":
+                anuncio.estado = "ACTIVO"
+                AnuncioRepository.marcar_reportes_revisados(anuncio.id)
+                log_entry = ModeracionLog(
+                    admin_id=admin_id,
+                    anuncio_id=anuncio.id,
+                    accion="DESBLOQUEADO",
+                    motivo_admin=motivo_admin,
+                    created_at=_utcnow_naive(),
+                )
+                AnuncioRepository.agregar_moderacion_log(log_entry)
+                admin_log = AdminLog(
+                    admin_id=admin_id,
+                    usuario_id=None,
+                    anuncio_id=anuncio.id,
+                    accion="DESBLOQUEADO",
+                    motivo=motivo_admin,
+                    created_at=_utcnow_naive(),
+                )
+                AnuncioRepository.agregar_admin_log(admin_log)
+
+            AnuncioRepository.commit()
+            return {
+                "success": True,
+                "data": {
+                    "apelacion_id": apelacion.id,
+                    "estado": apelacion.estado,
+                    "respuesta_admin": apelacion.respuesta_admin,
+                    "resolved_at": apelacion.resolved_at.isoformat() if apelacion.resolved_at else None,
+                    "anuncio_id": anuncio.id,
+                    "estado_anuncio": anuncio.estado,
+                },
+                "error": None,
+                "message": "Apelacion resuelta correctamente.",
+            }
+        except SQLAlchemyError:
+            AnuncioRepository.rollback()
+            return _error_response("DATABASE_ERROR", "No se pudo resolver la apelacion.")
 
     @staticmethod
     def bloquear_anuncio_admin(anuncio_id, admin_id, motivo_admin):
@@ -1073,6 +1544,39 @@ class AnuncioService:
                 anuncio_id,
             )
 
+    @staticmethod
+    def _enviar_correo_anuncio_reportado_async(vendedor_correo, titulo_anuncio, motivo, detalle):
+        app = current_app._get_current_object()
+        if app.config.get("TESTING") or app.config.get("EMAIL_DELIVERY_MODE") == "testing":
+            AnuncioService._enviar_correo_anuncio_reportado(
+                app,
+                vendedor_correo,
+                titulo_anuncio,
+                motivo,
+                detalle,
+            )
+            return
+
+        thread = threading.Thread(
+            target=AnuncioService._enviar_correo_anuncio_reportado,
+            args=(app, vendedor_correo, titulo_anuncio, motivo, detalle),
+            daemon=True,
+        )
+        thread.start()
+
+    @staticmethod
+    def _enviar_correo_anuncio_reportado(app, vendedor_correo, titulo_anuncio, motivo, detalle):
+        try:
+            EmailService.send_listing_reported_email(
+                app,
+                vendedor_correo,
+                titulo_anuncio=titulo_anuncio,
+                motivo=motivo,
+                detalle=detalle,
+            )
+        except Exception:
+            app.logger.exception("No se pudo enviar correo de anuncio reportado")
+
 
 def _error_response(error_code, message, data=None):
     return {
@@ -1445,3 +1949,202 @@ def _absolute_media_path(upload_folder, relative_path):
     if normalized.parts and normalized.parts[0] == "uploads":
         normalized = Path(*normalized.parts[1:])
     return Path(upload_folder) / normalized
+
+
+def _build_reporter_profiles(report_rows):
+    unique_reporters = {}
+    for row in report_rows:
+        report = row.Reporte
+        if report.comprador_id in unique_reporters:
+            continue
+        unique_reporters[report.comprador_id] = row
+
+    reporter_ids = list(unique_reporters.keys())
+    seven_days_ago = _utcnow_naive() - timedelta(days=7)
+    compras_por_reportante = AnuncioRepository.contar_compras_por_comprador_ids(reporter_ids)
+    reportes_recientes = AnuncioRepository.contar_reportes_desde_por_comprador_ids(reporter_ids, seven_days_ago)
+    reportes_contra_vendedor = AnuncioRepository.contar_reportes_contra_vendedor_desde(
+        reporter_ids,
+        seven_days_ago,
+    )
+
+    profiles = {}
+    now = _utcnow_naive()
+    for reporter_id, row in unique_reporters.items():
+        account_age_days = 0
+        if row.comprador_created_at:
+            account_age_days = max(0, (now - row.comprador_created_at).days)
+
+        total_compras = int(compras_por_reportante.get(reporter_id, 0))
+        total_calificaciones = int(row.comprador_total_calificaciones or 0)
+        promedio_calificacion = _float_or_none(row.comprador_calificacion_promedio)
+        total_reportes_7d = int(reportes_recientes.get(reporter_id, 0))
+        reportes_mismo_vendedor_7d = int(
+            reportes_contra_vendedor.get((reporter_id, row.vendedor_id), 0),
+        )
+
+        score = 40
+        if account_age_days >= 30:
+            score += 20
+        elif account_age_days >= 7:
+            score += 10
+        else:
+            score -= 10
+
+        if total_compras >= 1:
+            score += 15
+
+        if promedio_calificacion is not None and total_calificaciones >= 3 and promedio_calificacion >= 4:
+            score += 10
+
+        if total_reportes_7d >= 5:
+            score -= 15
+        elif total_reportes_7d >= 3:
+            score -= 8
+
+        if reportes_mismo_vendedor_7d >= 3:
+            score -= 10
+
+        score = max(0, min(100, score))
+
+        signals = []
+        if account_age_days < 7:
+            signals.append("CUENTA_RECIENTE")
+        if total_reportes_7d >= 5:
+            signals.append("RAFAGA_REPORTES_7D")
+        if reportes_mismo_vendedor_7d >= 3:
+            signals.append("CONCENTRACION_MISMO_VENDEDOR")
+        if total_compras == 0:
+            signals.append("SIN_COMPRAS_HISTORICAS")
+
+        profiles[reporter_id] = {
+            "reportante_id": reporter_id,
+            "score": score,
+            "nivel": _trust_level_for_score(score),
+            "account_age_days": account_age_days,
+            "total_compras": total_compras,
+            "total_reportes_7d": total_reportes_7d,
+            "reportes_mismo_vendedor_7d": reportes_mismo_vendedor_7d,
+            "promedio_calificacion_comprador": promedio_calificacion,
+            "total_calificaciones_comprador": total_calificaciones,
+            "senales": signals,
+        }
+
+    return profiles
+
+
+def _build_case_operational_signals(report_rows, reporter_profiles):
+    signals = []
+    if not report_rows:
+        return signals
+
+    low_trust = 0
+    same_seller_burst = 0
+    very_new_accounts = 0
+
+    for row in report_rows:
+        report = row.Reporte
+        profile = reporter_profiles.get(report.comprador_id, {})
+        if profile.get("nivel") == "BAJA":
+            low_trust += 1
+        if profile.get("reportes_mismo_vendedor_7d", 0) >= 3:
+            same_seller_burst += 1
+        if profile.get("account_age_days", 999) < 7 and profile.get("total_compras", 0) == 0:
+            very_new_accounts += 1
+
+    if low_trust == len(report_rows):
+        signals.append({
+            "codigo": "REPORTANTES_BAJA_CONFIANZA",
+            "nivel": "OBSERVAR",
+            "descripcion": "Todos los reportantes pendientes tienen señales de baja confianza.",
+        })
+    if same_seller_burst > 0:
+        signals.append({
+            "codigo": "CONCENTRACION_CONTRA_VENDEDOR",
+            "nivel": "REVISAR",
+            "descripcion": "Hay reportantes con multiples reportes recientes contra el mismo vendedor.",
+        })
+    if very_new_accounts >= max(2, len(report_rows)):
+        signals.append({
+            "codigo": "CUENTAS_RECIENTES_COORDINADAS",
+            "nivel": "REVISAR",
+            "descripcion": "Predominan cuentas muy nuevas y sin compras en este caso.",
+        })
+
+    return signals
+
+
+def _build_case_priority_score(
+    total_reportes,
+    motivos,
+    reportes_del_caso,
+    perfiles_reportantes,
+    evidencias_por_reporte,
+):
+    score = total_reportes * 12
+    score += len({row.Reporte.comprador_id for row in reportes_del_caso}) * 8
+
+    motive_weights = {
+        "FRAUDE": 10,
+        "PRODUCTO_FALSO": 10,
+        "PRECIO_ENGANOSO": 6,
+        "CONTENIDO_INAPROPIADO": 4,
+        "DUPLICADO": 2,
+        "OTRO": 1,
+    }
+    for motivo in motivos:
+        score += motive_weights.get(motivo, 1)
+
+    for row in reportes_del_caso:
+        report = row.Reporte
+        score += evidencias_por_reporte.get(report.id, 0) * 5
+        profile = perfiles_reportantes.get(report.comprador_id, {})
+        if profile.get("nivel") == "ALTA":
+            score += 10
+        elif profile.get("nivel") == "MEDIA":
+            score += 4
+        elif profile.get("nivel") == "BAJA":
+            score -= 2
+
+    if reportes_del_caso and all(
+        perfiles_reportantes.get(row.Reporte.comprador_id, {}).get("nivel") == "BAJA"
+        for row in reportes_del_caso
+    ):
+        score -= 10
+
+    return max(0, min(100, score))
+
+
+def _build_average_reporter_score(reporter_ids, reporter_profiles):
+    scores = [
+        reporter_profiles[reporter_id]["score"]
+        for reporter_id in reporter_ids
+        if reporter_id in reporter_profiles
+    ]
+    if not scores:
+        return None
+    return round(sum(scores) / len(scores), 1)
+
+
+def _trust_level_for_score(score):
+    if score >= 70:
+        return "ALTA"
+    if score >= 45:
+        return "MEDIA"
+    return "BAJA"
+
+
+def _priority_level_for_score(score):
+    if score >= PRIORIDAD_ALTA_MIN_SCORE:
+        return "ALTA"
+    if score >= PRIORIDAD_MEDIA_MIN_SCORE:
+        return "MEDIA"
+    return "BAJA"
+
+
+def _float_or_none(value):
+    if value is None:
+        return None
+    if hasattr(value, "as_tuple"):
+        return float(value)
+    return float(value)

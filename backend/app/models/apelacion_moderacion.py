@@ -1,61 +1,55 @@
 from app import db
 
 
-MOTIVOS_REPORTE = (
-    "FRAUDE",
-    "PRECIO_ENGANOSO",
-    "PRODUCTO_FALSO",
-    "CONTENIDO_INAPROPIADO",
-    "DUPLICADO",
-    "OTRO",
-)
-
-ESTADOS_REPORTE = (
+ESTADOS_APELACION_MODERACION = (
     "PENDIENTE",
-    "REVISADO",
+    "ACEPTADA",
+    "RECHAZADA",
 )
 
 
-class Reporte(db.Model):
-    __tablename__ = "reportes"
+class ApelacionModeracion(db.Model):
+    __tablename__ = "apelaciones_moderacion"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    comprador_id = db.Column(
-        db.Integer,
-        db.ForeignKey("usuarios.id", ondelete="CASCADE", onupdate="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     anuncio_id = db.Column(
         db.Integer,
         db.ForeignKey("anuncios.id", ondelete="CASCADE", onupdate="CASCADE"),
         nullable=False,
         index=True,
     )
-    motivo = db.Column(db.Enum(*MOTIVOS_REPORTE), nullable=False)
-    detalle = db.Column(db.Text, nullable=True)
+    usuario_id = db.Column(
+        db.Integer,
+        db.ForeignKey("usuarios.id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    mensaje = db.Column(db.Text, nullable=False)
     estado = db.Column(
-        db.Enum(*ESTADOS_REPORTE),
+        db.Enum(*ESTADOS_APELACION_MODERACION),
         nullable=False,
         default="PENDIENTE",
         server_default="PENDIENTE",
         index=True,
     )
+    respuesta_admin = db.Column(db.Text, nullable=True)
     created_at = db.Column(
         db.DateTime,
         nullable=False,
         server_default=db.func.current_timestamp(),
         index=True,
     )
+    resolved_at = db.Column(db.DateTime, nullable=True, index=True)
 
     def to_public_dict(self):
         return {
             "id": self.id,
-            "comprador_id": self.comprador_id,
             "anuncio_id": self.anuncio_id,
-            "motivo": self.motivo,
-            "detalle": self.detalle,
+            "usuario_id": self.usuario_id,
+            "mensaje": self.mensaje,
             "estado": self.estado,
+            "respuesta_admin": self.respuesta_admin,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
             "evidencias": [evidencia.to_public_dict() for evidencia in self.evidencias],
         }

@@ -21,6 +21,9 @@ humana.
 - `anuncios`
 - `media_anuncio`
 - `reportes`
+- `reporte_evidencias`
+- `apelaciones_moderacion`
+- `apelacion_evidencias`
 - `moderacion_log`
 - `admin_log`
 - `transacciones`
@@ -33,6 +36,8 @@ humana.
 - un `usuario` puede tener una `tienda`
 - un `anuncio` puede tener multiples registros en `media_anuncio`
 - un `anuncio` puede generar `reportes`, `contactos_log` y `transacciones`
+- un `reporte` puede generar multiples `reporte_evidencias`
+- una `apelacion_moderacion` puede generar multiples `apelacion_evidencias`
 - una `transaccion` puede generar `calificaciones`
 
 ## Reglas generales
@@ -50,9 +55,24 @@ humana.
   `BLOQUEADO`
 - los flujos de verificacion y recuperacion usan `tokens_verificacion`
 - la moderacion administrativa queda auditada en `moderacion_log` y `admin_log`
+- un `reporte` puede incluir `detalle` descriptivo y evidencias adjuntas del
+  reportante
+- un anuncio bloqueado puede recibir una sola `apelacion_moderacion` por ciclo
+  de bloqueo y esa apelacion puede adjuntar evidencias propias
 - las transacciones y calificaciones soportan reputacion de comprador y vendedor
 
 ## Recomendacion
 
 Cuando exista una diferencia entre este resumen y `database.sql`, se debe tomar
 como valido `database.sql`.
+
+Para cambios incrementales sobre una base ya existente, el proyecto puede dejar
+scripts de migracion auxiliares en `scripts/`. En la fase 1 del reporte
+enriquecido se agrego `scripts/migrate-moderation-phase1.py` para aplicar los
+cambios de `reportes` y `reporte_evidencias` sobre una BD local existente. En
+la fase 2 se agrega `scripts/migrate-moderation-phase2.py` para crear
+`apelaciones_moderacion` y `apelacion_evidencias`.
+
+La fase 3 de priorizacion y abuso no agrega tablas nuevas en esta iteracion:
+trabaja con metricas derivadas calculadas a partir de `usuarios`, `reportes`,
+`anuncios`, `moderacion_log` y `transacciones`.

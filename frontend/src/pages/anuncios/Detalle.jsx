@@ -12,6 +12,20 @@ const conditionStyles = {
   PARA_REPUESTOS: 'bg-rose-500 text-white',
 }
 
+const reportReasonLabels = {
+  FRAUDE: 'Fraude o estafa',
+  PRECIO_ENGANOSO: 'Precio enganoso',
+  PRODUCTO_FALSO: 'Producto falso',
+  CONTENIDO_INAPROPIADO: 'Contenido inapropiado',
+  DUPLICADO: 'Anuncio duplicado',
+  OTRO: 'Otro motivo',
+}
+
+const reportReasonOptions = Object.entries(reportReasonLabels).map(([value, label]) => ({
+  value,
+  label,
+}))
+
 const EmptyMedia = () => (
   <div className="flex aspect-[4/3] items-center justify-center rounded-[28px] bg-slate-100 text-slate-400">
     <svg
@@ -79,9 +93,14 @@ const Detalle = () => {
   const [error, setError] = useState('')
   const [contactMessage, setContactMessage] = useState('')
   const [ownerMessage, setOwnerMessage] = useState('')
+  const [reportMessage, setReportMessage] = useState('')
   const [videoOpen, setVideoOpen] = useState(false)
   const [desactivarOpen, setDesactivarOpen] = useState(false)
   const [vendidoOpen, setVendidoOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportReason, setReportReason] = useState(reportReasonOptions[0]?.value ?? 'FRAUDE')
+  const [reportDetail, setReportDetail] = useState('')
+  const [reportFiles, setReportFiles] = useState([])
   const [selectedBuyerId, setSelectedBuyerId] = useState('')
   const [actionLoading, setActionLoading] = useState('')
 
@@ -169,6 +188,7 @@ const Detalle = () => {
 
   const handleWhatsapp = async () => {
     setContactMessage('')
+    setReportMessage('')
 
     if (!usuario) {
       navigate('/login', {
@@ -198,6 +218,68 @@ const Detalle = () => {
             'No se pudo generar el enlace de WhatsApp.'
         )
       }
+    }
+  }
+
+  const handleOpenReport = () => {
+    setContactMessage('')
+    setOwnerMessage('')
+    setReportMessage('')
+
+    if (!usuario) {
+      navigate('/login', {
+        state: { message: 'Inicia sesion para reportar este anuncio.' },
+      })
+      return
+    }
+
+    if (anuncio?.es_propietario) {
+      return
+    }
+
+    setReportReason(reportReasonOptions[0]?.value ?? 'FRAUDE')
+    setReportDetail('')
+    setReportFiles([])
+    setReportOpen(true)
+  }
+
+  const handleSubmitReport = async (event) => {
+    event.preventDefault()
+    setActionLoading('reportar')
+    setReportMessage('')
+
+    try {
+      const formData = new FormData()
+      formData.append('motivo', reportReason)
+      formData.append('detalle', reportDetail)
+      reportFiles.forEach((file) => formData.append('evidencias', file))
+
+      const response = await api.post(`/anuncios/${id}/reportar`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      setReportOpen(false)
+      setReportDetail('')
+      setReportFiles([])
+      setReportMessage(
+        response.data?.message || 'Tu reporte fue registrado y sera revisado por administracion.'
+      )
+    } catch (requestError) {
+      if (requestError.response?.status === 401) {
+        navigate('/login', {
+          state: { message: 'Inicia sesion para reportar este anuncio.' },
+        })
+        return
+      }
+
+      setReportMessage(
+        requestError.response?.data?.message ||
+          requestError.response?.data?.mensaje ||
+          'No se pudo registrar el reporte.'
+      )
+    } finally {
+      setActionLoading('')
     }
   }
 
@@ -489,8 +571,22 @@ const Detalle = () => {
                   {usuario ? 'Contactar por WhatsApp' : 'Inicia sesión para contactar'}
                 </button>
 
+                {!anuncio.es_propietario ? (
+                  <button
+                    className="mt-3 w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                    onClick={handleOpenReport}
+                    type="button"
+                  >
+                    {usuario ? 'Reportar anuncio' : 'Inicia sesion para reportar'}
+                  </button>
+                ) : null}
+
                 {contactMessage ? (
                   <p className="mt-3 text-sm text-amber-700">{contactMessage}</p>
+                ) : null}
+
+                {reportMessage ? (
+                  <p className="mt-3 text-sm text-rose-700">{reportMessage}</p>
                 ) : null}
               </div>
 
@@ -647,6 +743,108 @@ const Detalle = () => {
             >
               {actionLoading === 'vendido' ? 'Guardando...' : 'Confirmar venta'}
             </button>
+          </form>
+        </Modal>
+      ) : null}
+
+      {reportOpen ? (
+        <Modal onClose={() => setReportOpen(false)} title="Reportar anuncio">
+          <form className="space-y-4" onSubmit={handleSubmitReport}>
+            <p className="text-sm leading-6 text-slate-600">
+              Elige el motivo que mejor describa el problema. Tu reporte sera revisado por
+              administracion y no bloquea el anuncio automaticamente.
+            </p>
+
+            <div className="space-y-3">
+              {reportReasonOptions.map((option) => (
+                <label
+                  className={`block cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                    reportReason === option.value
+                      ? 'border-rose-300 bg-rose-50'
+                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                  }`}
+                  key={option.value}
+                >
+                  <input
+                    checked={reportReason === option.value}
+                    className="sr-only"
+                    name="motivo"
+                    onChange={() => setReportReason(option.value)}
+                    type="radio"
+                    value={option.value}
+                  />
+                  <span className="text-sm font-medium text-slate-800">{option.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700" htmlFor="detalle_reporte">
+                Detalle del reporte
+              </label>
+              <textarea
+                className="min-h-28 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-rose-300"
+                id="detalle_reporte"
+                maxLength={1000}
+                onChange={(event) => setReportDetail(event.target.value)}
+                placeholder="Describe brevemente por que consideras problematico este anuncio."
+                value={reportDetail}
+              />
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Opcional, pero recomendado para ayudar a moderacion.</span>
+                <span>{reportDetail.length}/1000</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700" htmlFor="evidencias_reporte">
+                Evidencias
+              </label>
+              <input
+                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                className="block w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-xl file:border-0 file:bg-rose-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-rose-700"
+                id="evidencias_reporte"
+                multiple
+                onChange={(event) => setReportFiles(Array.from(event.target.files ?? []).slice(0, 3))}
+                type="file"
+              />
+              <p className="text-xs text-slate-500">
+                Hasta 3 imagenes JPG o PNG de maximo 5MB cada una.
+              </p>
+              {reportFiles.length > 0 ? (
+                <ul className="space-y-1 text-xs text-slate-600">
+                  {reportFiles.map((file) => (
+                    <li key={`${file.name}-${file.size}`}>{file.name}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">
+              No puedes reportar tu propio anuncio, repetir el mismo reporte en el mismo ciclo
+              ni exceder el limite diario permitido.
+            </div>
+
+            {reportMessage ? (
+              <p className="text-sm text-rose-700">{reportMessage}</p>
+            ) : null}
+
+            <div className="flex gap-3">
+              <button
+                className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700"
+                onClick={() => setReportOpen(false)}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="flex-1 rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white"
+                disabled={actionLoading === 'reportar'}
+                type="submit"
+              >
+                {actionLoading === 'reportar' ? 'Enviando...' : 'Enviar reporte'}
+              </button>
+            </div>
           </form>
         </Modal>
       ) : null}

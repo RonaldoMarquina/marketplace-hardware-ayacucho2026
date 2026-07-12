@@ -16,7 +16,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $backendDir = Join-Path $repoRoot "backend"
 $sonarScript = Join-Path $PSScriptRoot "run-sonar-local.ps1"
 $qaRunId = [guid]::NewGuid().ToString("N")
-$pytestTempRoot = Join-Path $env:TEMP "hardware-ayacucho-pytest"
+$pytestTempRoot = Join-Path $repoRoot ".pytest_tmp_runs"
 
 function Invoke-Step {
     param(
@@ -67,6 +67,12 @@ function Get-PytestBaseTemp {
     return Join-Path $pytestTempRoot ("full-" + $qaRunId)
 }
 
+function Ensure-PytestTempRoot {
+    if (-not (Test-Path $pytestTempRoot)) {
+        New-Item -ItemType Directory -Path $pytestTempRoot | Out-Null
+    }
+}
+
 if (-not (Test-Path $sonarScript)) {
     throw "No se encontro el script de SonarQube esperado en $sonarScript"
 }
@@ -78,6 +84,8 @@ if ($Quick -and -not $SkipSonar) {
 if ((-not $Quick) -and (-not $SkipSonar) -and [string]::IsNullOrWhiteSpace($SonarToken)) {
     throw "El flujo completo requiere -SonarToken o usar -SkipSonar si solo deseas validar localmente sin SonarQube."
 }
+
+Ensure-PytestTempRoot
 
 Invoke-Step -Name "PyTest" -Action {
     $baseTemp = Get-PytestBaseTemp

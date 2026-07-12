@@ -4,7 +4,12 @@ from flask_jwt_extended import get_jwt_identity
 
 from marshmallow import ValidationError
 
-from app.schemas.usuario_schema import ActualizarPerfilSchema, HistorialTransaccionesSchema
+from app.schemas.usuario_schema import (
+    ActualizarPerfilSchema,
+    ApelarModeracionSchema,
+    HistorialTransaccionesSchema,
+)
+from app.services.anuncio_service import AnuncioService
 from app.services.transaccion_service import TransaccionService
 from app.services.usuario_service import UsuarioService
 
@@ -128,6 +133,88 @@ def actualizar_perfil_me_controller():
     return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
 
 
+def casos_moderacion_me_controller():
+    try:
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.obtener_casos_moderacion_propietario(usuario_id)
+    except Exception:
+        current_app.logger.exception("Error inesperado al obtener casos de moderacion del usuario")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": INTERNAL_ERROR_MESSAGE,
+        }), 500
+
+    return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
+
+
+def detalle_moderacion_anuncio_me_controller(anuncio_id):
+    try:
+        anuncio_id_int = _parse_positive_int(anuncio_id, "anuncio_id")
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.obtener_detalle_caso_moderacion_propietario(anuncio_id_int, usuario_id)
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+    except Exception:
+        current_app.logger.exception("Error inesperado al obtener detalle de moderacion del anuncio")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": INTERNAL_ERROR_MESSAGE,
+        }), 500
+
+    return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
+
+
+def apelar_moderacion_anuncio_me_controller(anuncio_id):
+    schema = ApelarModeracionSchema()
+    files = request.files.getlist("evidencias")
+    request_data = request.form.to_dict() if request.files else (request.get_json(silent=True) or {})
+
+    try:
+        anuncio_id_int = _parse_positive_int(anuncio_id, "anuncio_id")
+        datos_validados = schema.load(request_data)
+        usuario_id = int(get_jwt_identity())
+        respuesta = AnuncioService.apelar_moderacion(
+            anuncio_id_int,
+            usuario_id,
+            datos_validados["mensaje"],
+            evidencias=files,
+            upload_folder=current_app.config.get("UPLOAD_FOLDER"),
+        )
+    except ValidationError as error:
+        return jsonify({
+            "success": False,
+            "data": error.messages,
+            "error": "VALIDATION_ERROR",
+            "message": INVALID_FIELDS_MESSAGE,
+        }), 422
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "VALIDATION_ERROR",
+            "message": str(error),
+        }), 400
+    except Exception:
+        current_app.logger.exception("Error inesperado al apelar moderacion del anuncio")
+        return jsonify({
+            "success": False,
+            "data": {},
+            "error": "INTERNAL_ERROR",
+            "message": INTERNAL_ERROR_MESSAGE,
+        }), 500
+
+    return jsonify(respuesta), _status_for_usuario_response(respuesta, success_status=200)
+
+
 def _status_for_usuario_response(respuesta, success_status):
     if respuesta.get("success"):
         return success_status
@@ -138,6 +225,10 @@ def _status_for_usuario_response(respuesta, success_status):
         "CONFLICT": 409,
         "VALIDATION_ERROR": 422,
         "EMPTY_BODY": 400,
+        "APPEAL_EVIDENCE_TOO_LARGE": 413,
+        "INVALID_APPEAL_EVIDENCE": 422,
+        "INVALID_APPEAL_EVIDENCE_TYPE": 422,
+        "TOO_MANY_APPEAL_EVIDENCES": 422,
     }
     return status_by_error.get(respuesta.get("error"), 500)
 

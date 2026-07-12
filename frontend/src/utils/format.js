@@ -1,4 +1,5 @@
-const BACKEND_URL = 'http://localhost:5000'
+import { API_ORIGIN } from '../config/api'
+
 const PLACEHOLDER_IMAGE =
   'https://placehold.co/800x600/e2e8f0/475569?text=Sin+imagen'
 
@@ -50,5 +51,5 @@ export const formatImageUrl = (rutaRelativa) => {
 
   const normalizedPath = rutaRelativa.startsWith('/') ? rutaRelativa : `/${rutaRelativa}`
 
-  return `${BACKEND_URL}${normalizedPath}`
+  return `${API_ORIGIN}${normalizedPath}`
 }

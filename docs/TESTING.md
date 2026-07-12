@@ -47,7 +47,7 @@ Ejemplos:
 - registro y verificacion
 - publicacion y edicion de anuncios
 - busqueda, detalle y contacto
-- moderacion y administracion
+- moderacion, reporte con evidencia y administracion
 - perfil, panel, historial y calificaciones
 
 ## Marcadores PyTest
@@ -60,8 +60,9 @@ En `backend/pytest.ini` se registran:
 Ademas, la configuracion del repositorio fija `basetemp` locales separados para
 las corridas desde la raiz y desde `backend`, con el fin de evitar bloqueos de
 archivos temporales en Windows y mantener estables las ejecuciones locales. El
-script oficial de QA sigue usando una carpeta bajo `%TEMP%` para aislar
-ejecuciones largas o paralelas.
+script oficial de QA usa una carpeta temporal versionada localmente dentro del
+workspace para aislar ejecuciones largas o paralelas sin depender de permisos
+variables sobre `%TEMP%`.
 
 ## Comandos principales
 
@@ -110,7 +111,8 @@ py -m pytest --cov=app --cov-config=.coveragerc --cov-report=term-missing --cov-
 
 Los tests no envian correos reales. El backend usa `EMAIL_DELIVERY_MODE=testing`
 y registra cada mensaje en una bandeja interna (`mail_outbox`) para poder
-validar verificacion de correo y reset password sin credenciales externas.
+validar verificacion de correo, reset password y notificaciones operativas de
+moderacion sin credenciales externas.
 
 ## Hardening de reset password
 
@@ -119,6 +121,19 @@ La suite ya cubre tres garantias extra del flujo de recuperacion:
 - el token enviado por correo no queda persistido reusable en claro
 - un JWT emitido antes del cambio de contrasena queda revocado despues del reset
 - la confirmacion del reset tiene rate limit dedicado para frenar abuso por IP
+
+## Moderacion de anuncios
+
+La suite de integracion ya cubre reglas base y fase 1 del reporte enriquecido:
+
+- registro de reporte con `motivo` y `detalle`
+- rechazo de autoreporte y duplicidad por ciclo activo
+- limite diario de reportes por usuario
+- carga de evidencias `JPG` o `PNG`
+- detalle administrativo del caso con reportes y evidencias
+- notificacion por correo al vendedor cuando su anuncio recibe un reporte
+- visibilidad del caso reportado en el panel del propietario antes del bloqueo
+- apelacion habilitada solo para anuncios efectivamente bloqueados
 
 ## Pylint
 
@@ -167,15 +182,64 @@ El proyecto usa `sonar-project.properties` para analizar:
 - `frontend/src`
 - cobertura del backend desde `backend/coverage.xml`
 
+### Uso recomendado de SonarQube
+
+Para este proyecto de ciclo completo, SonarQube se usa principalmente como
+tablero global de apoyo para revisar:
+
+- cobertura
+- duplicacion
+- fiabilidad
+- mantenibilidad
+- hotspots de seguridad
+
+El control operativo principal del QA sigue siendo:
+
+- `PyTest`
+- cobertura del backend
+- `Pylint`
+- `Bandit`
+
+Si la instancia local de SonarQube permite quality gates sanas, el equipo puede
+usar criterios de `New Code` como referencia futura. Pero si la instancia local
+presenta limitaciones de permisos o de interfaz, eso no debe bloquear el cierre
+QA mientras exista evidencia clara de pruebas, cobertura y analisis estatico.
+
+Referencias futuras no obligatorias para `New Code`:
+
+- `No new Blocker issues`
+- `No new Critical issues`
+- `Coverage >= 80%`
+- `Duplicated Lines <= 3%`
+- `Security Hotspots Reviewed = 100%`
+- `Maintainability A`
+
 ### Entry point oficial de QA hardening
 
 El flujo local de QA queda centralizado en:
 
 ```powershell
+# Usar solo desde PowerShell / Windows Terminal
 powershell -ExecutionPolicy Bypass -File .\scripts\run-qa-hardening.ps1 -SonarToken "<token>"
 ```
+
 ```GitBash
+# Usar desde Git Bash en Windows
 powershell.exe -ExecutionPolicy Bypass -File ./scripts/run-qa-hardening.ps1 -SonarToken "tu_token_aqui"
+```
+
+```GitBash
+# Opcion alternativa solo si tienes PowerShell 7 instalado
+pwsh -ExecutionPolicy Bypass -File ./scripts/run-qa-hardening.ps1 -SonarToken "tu_token_aqui"
+```
+
+No mezclar sintaxis: en Git Bash no uses `.\scripts\...`, y en PowerShell no
+uses `./scripts/...`.
+
+Si `powershell.exe` interpreta mal la ruta desde Git Bash, usa esta variante:
+
+```GitBash
+powershell.exe -ExecutionPolicy Bypass -File "$(pwd)/scripts/run-qa-hardening.ps1" -SonarToken "tu_token_aqui"
 ```
 
 Precondiciones para el flujo completo:
@@ -186,8 +250,8 @@ Precondiciones para el flujo completo:
 - `sonar-scanner` disponible en la ruta esperada o indicado con `-ScannerBat`
 
 El script fuerza `pytest` a usar una carpeta unica por ejecucion bajo
-`%TEMP%\hardware-ayacucho-pytest` para evitar errores de permisos cuando el
-repositorio vive dentro de `OneDrive` o cuando se lanzan corridas paralelas.
+`./.pytest_tmp_runs/` para evitar errores de permisos sobre `%TEMP%` y mantener
+aisladas las corridas paralelas del flujo de QA.
 
 ### Validacion rapida
 
@@ -209,7 +273,7 @@ No ejecuta cobertura ni SonarQube.
 
 1. ejecutar `powershell -ExecutionPolicy Bypass -File .\scripts\run-qa-hardening.ps1 -SonarToken "<token>"`
 2. validar que `backend/coverage.xml` se haya regenerado durante la etapa de cobertura
-3. revisar resultados de `Pylint`, `Bandit` y `SonarQube`
+3. revisar resultados de `Pylint`, `Bandit` y el tablero global de `SonarQube`
 
 ### Secuencia interna del flujo completo
 
@@ -242,9 +306,9 @@ Estado actual observado:
 - `scripts/run-sonar-local.ps1` completa el analisis local y publica el reporte
   en `http://localhost:9000/dashboard?id=HardwareAyacucho`
 
-El script oficial resuelve el segundo punto usando `%TEMP%` como base temporal
-de `pytest`, por lo que la limitacion original queda corregida para este
-entorno local.
+El script oficial resuelve el segundo punto usando `./.pytest_tmp_runs/` como
+base temporal de `pytest`, por lo que la limitacion original queda corregida
+para este entorno local incluso si Windows restringe el acceso a `%TEMP%`.
 
 La suite puede disparar `ResourceWarning` esporadicos ligados al manejo interno
 de archivos temporales en dependencias del stack web durante pruebas
@@ -261,6 +325,14 @@ Para SonarQube, el staging local se prepara en `./.sonar_runs/<run-id>` dentro
 del workspace en lugar de `%TEMP%`, con el fin de evitar errores de acceso al
 resolver el directorio base durante el escaneo en Windows y aislar cada
 ejecucion del scanner.
+
+## Resumen operativo
+
+- para validar rapido: `py -m pytest`
+- para cobertura: `py -m pytest --cov=app --cov-config=.coveragerc --cov-report=term-missing --cov-report=xml`
+- para QA local completo: `run-qa-hardening.ps1`
+- para Git Bash: usar rutas `./scripts/...`
+- para PowerShell: usar rutas `.\scripts\...`
 
 ## Cobertura funcional por HU
 
@@ -287,3 +359,5 @@ ejecucion del scanner.
   y credenciales reales de correo transaccional
 - mantener nuevas reglas puras en `tests/unit`
 - mantener nuevos endpoints o flujos en `tests/integration`
+- cuando cambie el modelo de datos local, actualizar tambien `docs/database.sql`
+  y dejar un script de migracion reutilizable si aplica
