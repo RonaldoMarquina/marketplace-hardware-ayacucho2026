@@ -70,54 +70,63 @@ const Panel = () => {
   const [submittingAppeal, setSubmittingAppeal] = useState(false)
   const activeListingsRef = useRef(null)
 
-  useEffect(() => {
-    const fetchPanel = async () => {
+  const refreshPanelData = async ({ showLoading = false } = {}) => {
+    if (showLoading) {
       setCargando(true)
-      setError('')
-      setPerfilPublicoError('')
+    }
+
+    setError('')
+    setPerfilPublicoError('')
+
+    try {
+      const panelResponse = await api.get('/usuarios/me/panel')
+      const panelData = panelResponse.data.data
+      const ownerId = panelData?.perfil?.id
+
+      setPanel(panelData)
+
+      if (!ownerId) {
+        setPerfilPublico(null)
+        setPerfilPublicoError(
+          'No se pudo identificar el usuario para cargar la vista previa del perfil.'
+        )
+        return
+      }
 
       try {
-        const panelResponse = await api.get('/usuarios/me/panel')
-        const panelData = panelResponse.data.data
-        const ownerId = panelData?.perfil?.id
-
-        setPanel(panelData)
-
-        if (!ownerId) {
-          setPerfilPublico(null)
-          setPerfilPublicoError(
-            'No se pudo identificar el usuario para cargar la vista previa del perfil.'
-          )
-        } else {
-          try {
-            const perfilResponse = await api.get(`/usuarios/${ownerId}/perfil`)
-            setPerfilPublico(perfilResponse.data.data)
-          } catch (perfilError) {
-            setPerfilPublico(null)
-            setPerfilPublicoError(
-              perfilError.response?.data?.mensaje ||
-                perfilError.response?.data?.message ||
-                'No se pudo cargar la vista previa de tus anuncios activos.'
-            )
-          }
-        }
-      } catch (requestError) {
-        setError(
-          requestError.response?.data?.mensaje ||
-            requestError.response?.data?.message ||
-            'No se pudo cargar el panel.'
+        const perfilResponse = await api.get(`/usuarios/${ownerId}/perfil`)
+        setPerfilPublico(perfilResponse.data.data)
+      } catch (perfilError) {
+        setPerfilPublico(null)
+        setPerfilPublicoError(
+          perfilError.response?.data?.mensaje ||
+            perfilError.response?.data?.message ||
+            'No se pudo cargar la vista previa de tus anuncios activos.'
         )
-      } finally {
+      }
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.mensaje ||
+          requestError.response?.data?.message ||
+          'No se pudo cargar el panel.'
+      )
+    } finally {
+      if (showLoading) {
         setCargando(false)
       }
     }
+  }
 
+  useEffect(() => {
     if (!usuario) {
       setCargando(false)
       return
     }
 
-    fetchPanel()
+    refreshPanelData({ showLoading: true })
+    // refreshPanelData is intentionally omitted from deps because it is recreated on render
+    // and we only want to reload when auth user changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario])
 
   const anunciosActivos = useMemo(
@@ -284,36 +293,7 @@ const Panel = () => {
 
     try {
       await api.patch(`/anuncios/${anuncioId}/desactivar`)
-      setPerfilPublico((current) =>
-        current
-          ? {
-              ...current,
-              anuncios_activos: current.anuncios_activos.filter((item) => item.id !== anuncioId),
-              total_anuncios_activos: Math.max(0, current.total_anuncios_activos - 1),
-            }
-          : current,
-      )
-      setPanel((current) =>
-        current
-          ? {
-              ...current,
-              anuncios: {
-                ...current.anuncios,
-                activos: {
-                  ...current.anuncios.activos,
-                  total: Math.max(0, current.anuncios.activos.total - 1),
-                  disponibles:
-                    current.anuncios.activos.disponibles === null
-                      ? null
-                      : current.anuncios.activos.disponibles + 1,
-                },
-                inactivos: {
-                  total: current.anuncios.inactivos.total + 1,
-                },
-              },
-            }
-          : current,
-      )
+      await refreshPanelData()
     } catch (requestError) {
       setAccionError(
         requestError.response?.data?.mensaje ||
@@ -331,49 +311,7 @@ const Panel = () => {
 
     try {
       await api.patch(`/anuncios/${anuncioId}/reactivar`)
-      setPanel((current) =>
-        current
-          ? {
-              ...current,
-              anuncios: {
-                ...current.anuncios,
-                activos: {
-                  ...current.anuncios.activos,
-                  total: current.anuncios.activos.total + 1,
-                  disponibles:
-                    current.anuncios.activos.disponibles === null
-                      ? null
-                      : Math.max(0, current.anuncios.activos.disponibles - 1),
-                },
-                inactivos: {
-                  total: Math.max(0, current.anuncios.inactivos.total - 1),
-                  items: current.anuncios.inactivos.items.filter((item) => item.id !== anuncioId),
-                },
-              },
-            }
-          : current,
-      )
-      setPerfilPublico((current) => {
-        if (!current) return current
-
-        const reactivated = panel?.anuncios?.inactivos?.items?.find((item) => item.id === anuncioId)
-        if (!reactivated) {
-          return current
-        }
-
-        return {
-          ...current,
-          anuncios_activos: [
-            {
-              ...reactivated,
-              vendedor_nombre: current.nombre,
-              es_tienda_verificada: current.es_tienda_verificada,
-            },
-            ...current.anuncios_activos,
-          ],
-          total_anuncios_activos: current.total_anuncios_activos + 1,
-        }
-      })
+      await refreshPanelData()
     } catch (requestError) {
       setAccionError(
         requestError.response?.data?.mensaje ||
