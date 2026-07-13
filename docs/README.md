@@ -13,6 +13,7 @@ validacion que explican el sistema sin depender de una herramienta especifica.
 - `STACK.md`: stack tecnologico, arquitectura base y convenciones tecnicas
 - `API_GUIDE.md`: reglas generales de la API REST
 - `DATABASE.md`: resumen funcional del modelo de datos
+- `DEPLOYMENT.md`: estrategia de despliegue publico y checklist operativo
 - `database.sql`: esquema fuente de la base de datos MySQL
 - `SECURITY.md`: controles y reglas de seguridad aplicadas
 - `TESTING.md`: estrategia de pruebas, cobertura y calidad
