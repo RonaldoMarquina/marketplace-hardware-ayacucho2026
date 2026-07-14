@@ -1,6 +1,7 @@
 import pytest
 
 from app import create_app
+from app.services.email_service import EmailService
 
 
 pytestmark = pytest.mark.unit
@@ -14,7 +15,7 @@ def test_create_app_falla_si_public_production_no_tiene_smtp(monkeypatch):
     monkeypatch.setenv("EMAIL_PUBLIC_PRODUCTION", "true")
     monkeypatch.setenv("EMAIL_DELIVERY_MODE", "log")
 
-    with pytest.raises(RuntimeError, match="produccion publica requiere EMAIL_DELIVERY_MODE=smtp"):
+    with pytest.raises(RuntimeError, match="produccion publica requiere EMAIL_DELIVERY_MODE=smtp o resend_api"):
         create_app()
 
 
@@ -34,6 +35,57 @@ def test_create_app_acepta_public_production_con_smtp_configurado(monkeypatch):
 
     assert app.config["EMAIL_DELIVERY_MODE"] == "smtp"
     assert app.config["EMAIL_PUBLIC_PRODUCTION"] is True
+
+
+def test_create_app_acepta_public_production_con_resend_api(monkeypatch):
+    monkeypatch.setenv("FLASK_ENV", "production")
+    monkeypatch.setenv("FLASK_APP_SECRET", "x" * 48)
+    monkeypatch.setenv("JWT_SECRET_KEY", "y" * 48)
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("EMAIL_PUBLIC_PRODUCTION", "true")
+    monkeypatch.setenv("EMAIL_DELIVERY_MODE", "resend_api")
+    monkeypatch.setenv("EMAIL_FROM", "soporte@mail.hardwareayacucho.shop")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_123")
+
+    app = create_app()
+
+    assert app.config["EMAIL_DELIVERY_MODE"] == "resend_api"
+    assert app.config["EMAIL_PUBLIC_PRODUCTION"] is True
+
+
+def test_email_service_envia_por_resend_api(app, monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["headers"] = dict(req.header_items())
+        captured["body"] = req.data.decode("utf-8")
+        captured["timeout"] = timeout
+        return _FakeResponse()
+
+    app.config.update(
+        {
+            "EMAIL_DELIVERY_MODE": "resend_api",
+            "EMAIL_FROM": "soporte@mail.hardwareayacucho.shop",
+            "RESEND_API_KEY": "re_test_123",
+            "RESEND_API_BASE_URL": "https://api.resend.com/emails",
+        }
+    )
+    monkeypatch.setattr("app.services.email_service.request.urlopen", _fake_urlopen)
+
+    EmailService.send_verification_email(app, "alumno@example.com", "token-demo")
+
+    assert captured["url"] == "https://api.resend.com/emails"
+    assert captured["timeout"] == 15
+    assert "Bearer re_test_123" in captured["headers"]["Authorization"]
+    assert '"to": ["alumno@example.com"]' in captured["body"]
 
 
 def test_create_app_falla_si_cloudinary_queda_incompleto(monkeypatch):

@@ -1,5 +1,7 @@
+import json
 import smtplib
 from email.message import EmailMessage
+from urllib import request
 
 
 class EmailService:
@@ -99,6 +101,10 @@ class EmailService:
             app.logger.info("Correo %s para %s: %s", metadata["kind"], recipient, metadata["link"])
             return
 
+        if mode == "resend_api":
+            EmailService._deliver_resend_api(app, payload)
+            return
+
         EmailService._deliver_smtp(app, payload)
 
     @staticmethod
@@ -126,6 +132,31 @@ class EmailService:
                 server.starttls()
             server.login(smtp_username, smtp_password)
             server.send_message(message)
+
+    @staticmethod
+    def _deliver_resend_api(app, payload):
+        api_base_url = app.config["RESEND_API_BASE_URL"]
+        api_key = app.config["RESEND_API_KEY"]
+        timeout_seconds = int(app.config.get("SMTP_TIMEOUT_SECONDS", 15))
+        body = json.dumps(
+            {
+                "from": payload["from"],
+                "to": [payload["to"]],
+                "subject": payload["subject"],
+                "text": payload["body"],
+            }
+        ).encode("utf-8")
+        api_request = request.Request(
+            api_base_url,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with request.urlopen(api_request, timeout=timeout_seconds):
+            return
 
     @staticmethod
     def _build_subject(app, subject):

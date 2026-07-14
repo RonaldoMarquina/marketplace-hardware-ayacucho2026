@@ -98,6 +98,11 @@ def _configure_app(app, backend_dir, testing_mode, production_mode):
     app.config["SMTP_USE_TLS"] = _env_flag("SMTP_USE_TLS", True)
     app.config["SMTP_USE_SSL"] = _env_flag("SMTP_USE_SSL", False)
     app.config["SMTP_TIMEOUT_SECONDS"] = int(os.getenv("SMTP_TIMEOUT_SECONDS", "15"))
+    app.config["RESEND_API_KEY"] = os.getenv("RESEND_API_KEY")
+    app.config["RESEND_API_BASE_URL"] = os.getenv(
+        "RESEND_API_BASE_URL",
+        "https://api.resend.com/emails",
+    )
     app.config["CLOUDINARY_CLOUD_NAME"] = os.getenv("CLOUDINARY_CLOUD_NAME")
     app.config["CLOUDINARY_API_KEY"] = os.getenv("CLOUDINARY_API_KEY")
     app.config["CLOUDINARY_API_SECRET"] = os.getenv("CLOUDINARY_API_SECRET")
@@ -168,34 +173,46 @@ def create_app(test_config=None):
 
 def _validate_email_config(app):
     email_mode = app.config.get("EMAIL_DELIVERY_MODE", "log")
-    supported_modes = {"testing", "log", "smtp"}
+    supported_modes = {"testing", "log", "smtp", "resend_api"}
     if email_mode not in supported_modes:
         raise RuntimeError(
-            "EMAIL_DELIVERY_MODE debe ser uno de: testing, log, smtp."
+            "EMAIL_DELIVERY_MODE debe ser uno de: testing, log, smtp, resend_api."
         )
 
-    if email_mode != "smtp" and app.config.get("EMAIL_PUBLIC_PRODUCTION"):
+    if email_mode not in {"smtp", "resend_api"} and app.config.get("EMAIL_PUBLIC_PRODUCTION"):
         raise RuntimeError(
-            "La produccion publica requiere EMAIL_DELIVERY_MODE=smtp "
+            "La produccion publica requiere EMAIL_DELIVERY_MODE=smtp o resend_api "
             "con configuracion real de correo."
         )
 
-    if email_mode != "smtp":
+    if email_mode == "smtp":
+        missing = [
+            key
+            for key in ("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD", "EMAIL_FROM")
+            if not app.config.get(key)
+        ]
+        if missing:
+            raise RuntimeError(
+                "Falta configuracion SMTP obligatoria: " + ", ".join(missing) + "."
+            )
+
+        if app.config.get("SMTP_USE_TLS") and app.config.get("SMTP_USE_SSL"):
+            raise RuntimeError(
+                "SMTP_USE_TLS y SMTP_USE_SSL no pueden estar activos a la vez."
+            )
+        return
+
+    if email_mode != "resend_api":
         return
 
     missing = [
         key
-        for key in ("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD", "EMAIL_FROM")
+        for key in ("RESEND_API_KEY", "EMAIL_FROM")
         if not app.config.get(key)
     ]
     if missing:
         raise RuntimeError(
-            "Falta configuracion SMTP obligatoria: " + ", ".join(missing) + "."
-        )
-
-    if app.config.get("SMTP_USE_TLS") and app.config.get("SMTP_USE_SSL"):
-        raise RuntimeError(
-            "SMTP_USE_TLS y SMTP_USE_SSL no pueden estar activos a la vez."
+            "Falta configuracion Resend API obligatoria: " + ", ".join(missing) + "."
         )
 
 
