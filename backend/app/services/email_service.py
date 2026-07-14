@@ -1,7 +1,7 @@
 import json
 import smtplib
 from email.message import EmailMessage
-from urllib import request
+from urllib import error, request
 
 
 class EmailService:
@@ -155,8 +155,19 @@ class EmailService:
             },
             method="POST",
         )
-        with request.urlopen(api_request, timeout=timeout_seconds):
-            return
+        try:
+            with request.urlopen(api_request, timeout=timeout_seconds):
+                return
+        except error.HTTPError as exc:
+            error_body = exc.read().decode("utf-8", errors="replace")
+            app.logger.error(
+                "Resend API respondio con HTTP %s al enviar %s para %s: %s",
+                exc.code,
+                payload.get("kind"),
+                payload["to"],
+                error_body,
+            )
+            raise
 
     @staticmethod
     def _build_subject(app, subject):
