@@ -1,6 +1,7 @@
 import json
 import smtplib
 from email.message import EmailMessage
+from email.utils import parseaddr
 from urllib import error, request
 
 
@@ -105,6 +106,10 @@ class EmailService:
             EmailService._deliver_resend_api(app, payload)
             return
 
+        if mode == "brevo_api":
+            EmailService._deliver_brevo_api(app, payload)
+            return
+
         EmailService._deliver_smtp(app, payload)
 
     @staticmethod
@@ -168,6 +173,59 @@ class EmailService:
                 error_body,
             )
             raise
+
+    @staticmethod
+    def _deliver_brevo_api(app, payload):
+        api_base_url = app.config["BREVO_API_BASE_URL"]
+        api_key = app.config["BREVO_API_KEY"]
+        timeout_seconds = int(app.config.get("SMTP_TIMEOUT_SECONDS", 15))
+        sender_name, sender_email = EmailService._parse_sender(payload["from"])
+        body = json.dumps(
+            {
+                "sender": {
+                    "name": sender_name,
+                    "email": sender_email,
+                },
+                "to": [
+                    {
+                        "email": payload["to"],
+                        "name": payload["to"],
+                    }
+                ],
+                "subject": payload["subject"],
+                "textContent": payload["body"],
+            }
+        ).encode("utf-8")
+        api_request = request.Request(
+            api_base_url,
+            data=body,
+            headers={
+                "Accept": "application/json",
+                "api-key": api_key,
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with request.urlopen(api_request, timeout=timeout_seconds):
+                return
+        except error.HTTPError as exc:
+            error_body = exc.read().decode("utf-8", errors="replace")
+            app.logger.error(
+                "Brevo API respondio con HTTP %s al enviar %s para %s: %s",
+                exc.code,
+                payload.get("kind"),
+                payload["to"],
+                error_body,
+            )
+            raise
+
+    @staticmethod
+    def _parse_sender(sender_value):
+        sender_name, sender_email = parseaddr(sender_value or "")
+        normalized_email = sender_email or sender_value or ""
+        normalized_name = sender_name or normalized_email
+        return normalized_name, normalized_email
 
     @staticmethod
     def _build_subject(app, subject):

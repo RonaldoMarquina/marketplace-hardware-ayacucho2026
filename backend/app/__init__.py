@@ -103,6 +103,11 @@ def _configure_app(app, backend_dir, testing_mode, production_mode):
         "RESEND_API_BASE_URL",
         "https://api.resend.com/emails",
     )
+    app.config["BREVO_API_KEY"] = os.getenv("BREVO_API_KEY")
+    app.config["BREVO_API_BASE_URL"] = os.getenv(
+        "BREVO_API_BASE_URL",
+        "https://api.brevo.com/v3/smtp/email",
+    )
     app.config["CLOUDINARY_CLOUD_NAME"] = os.getenv("CLOUDINARY_CLOUD_NAME")
     app.config["CLOUDINARY_API_KEY"] = os.getenv("CLOUDINARY_API_KEY")
     app.config["CLOUDINARY_API_SECRET"] = os.getenv("CLOUDINARY_API_SECRET")
@@ -173,15 +178,15 @@ def create_app(test_config=None):
 
 def _validate_email_config(app):
     email_mode = app.config.get("EMAIL_DELIVERY_MODE", "log")
-    supported_modes = {"testing", "log", "smtp", "resend_api"}
+    supported_modes = {"testing", "log", "smtp", "resend_api", "brevo_api"}
     if email_mode not in supported_modes:
         raise RuntimeError(
-            "EMAIL_DELIVERY_MODE debe ser uno de: testing, log, smtp, resend_api."
+            "EMAIL_DELIVERY_MODE debe ser uno de: testing, log, smtp, resend_api, brevo_api."
         )
 
-    if email_mode not in {"smtp", "resend_api"} and app.config.get("EMAIL_PUBLIC_PRODUCTION"):
+    if email_mode not in {"smtp", "resend_api", "brevo_api"} and app.config.get("EMAIL_PUBLIC_PRODUCTION"):
         raise RuntimeError(
-            "La produccion publica requiere EMAIL_DELIVERY_MODE=smtp o resend_api "
+            "La produccion publica requiere EMAIL_DELIVERY_MODE=smtp, resend_api o brevo_api "
             "con configuracion real de correo."
         )
 
@@ -202,17 +207,29 @@ def _validate_email_config(app):
             )
         return
 
-    if email_mode != "resend_api":
+    if email_mode == "resend_api":
+        missing = [
+            key
+            for key in ("RESEND_API_KEY", "EMAIL_FROM")
+            if not app.config.get(key)
+        ]
+        if missing:
+            raise RuntimeError(
+                "Falta configuracion Resend API obligatoria: " + ", ".join(missing) + "."
+            )
+        return
+
+    if email_mode != "brevo_api":
         return
 
     missing = [
         key
-        for key in ("RESEND_API_KEY", "EMAIL_FROM")
+        for key in ("BREVO_API_KEY", "EMAIL_FROM")
         if not app.config.get(key)
     ]
     if missing:
         raise RuntimeError(
-            "Falta configuracion Resend API obligatoria: " + ", ".join(missing) + "."
+            "Falta configuracion Brevo API obligatoria: " + ", ".join(missing) + "."
         )
 
 
