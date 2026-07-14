@@ -114,6 +114,55 @@ def test_subir_imagen_y_video_exitoso(client, app):
         assert MediaAnuncio.query.count() == 2
 
 
+def test_subir_media_con_cloudinary_guarda_url_remota_y_metadatos(client, app, monkeypatch):
+    app.config["CLOUDINARY_ENABLED"] = True
+    app.extensions["cloudinary_configured"] = True
+
+    def fake_upload(_file_storage, anuncio_id):
+        return {
+            "tipo_media": "imagen",
+            "ruta_relativa": "https://res.cloudinary.com/demo/image/upload/v123/demo.png",
+            "public_id": f"anuncios/{anuncio_id}/demo",
+            "resource_type": "image",
+            "format": "png",
+            "bytes": 2048,
+            "width": 800,
+            "height": 600,
+            "version": "123",
+        }
+
+    monkeypatch.setattr("app.services.anuncio_service.upload_media_to_cloudinary", fake_upload)
+
+    with app.app_context():
+        usuario = crear_usuario("cloudinary_media@gmail.com")
+        anuncio = crear_anuncio(usuario)
+        token = token_para(usuario)
+        anuncio_id = anuncio.id
+
+    response = client.post(
+        media_url(anuncio_id),
+        data={"media": [file_tuple(PNG_BYTES, "foto.png")]},
+        content_type="multipart/form-data",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 201
+    body = response.get_json()
+    assert body["data"]["media"][0]["ruta_relativa"].startswith("https://res.cloudinary.com/")
+    assert body["data"]["media"][0]["public_id"] == f"anuncios/{anuncio_id}/demo"
+    assert body["data"]["media"][0]["resource_type"] == "image"
+
+    with app.app_context():
+        media_db = MediaAnuncio.query.one()
+        assert media_db.public_id == f"anuncios/{anuncio_id}/demo"
+        assert media_db.resource_type == "image"
+        assert media_db.formato == "png"
+        assert media_db.bytes_size == 2048
+        assert media_db.width == 800
+        assert media_db.height == 600
+        assert media_db.version == "123"
+
+
 def test_subir_media_sin_jwt_retorna_401(client, app):
     with app.app_context():
         usuario = crear_usuario()

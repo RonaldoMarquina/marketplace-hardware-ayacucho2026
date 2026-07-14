@@ -23,6 +23,11 @@ from app.models.reporte_evidencia import ReporteEvidencia
 from app.models.transaccion import Transaccion
 from app.repositories.anuncio_repository import AnuncioRepository
 from app.services.email_service import EmailService
+from app.utils.cloudinary_storage import (
+    CloudinaryStorageError,
+    delete_media_from_cloudinary,
+    upload_media_to_cloudinary,
+)
 from app.utils.apelacion_evidence_validation import (
     AppealEvidenceValidationError,
     delete_appeal_evidences,
@@ -1294,21 +1299,48 @@ class AnuncioService:
         archivos_guardados = []
         siguiente_orden = AnuncioRepository.obtener_siguiente_orden_imagen(anuncio_id)
         primera_imagen = imagenes_existentes == 0
+        cloudinary_assets = []
 
         try:
             for file in archivos:
-                tipo_media, ruta_relativa, ruta_absoluta = validate_and_store_media(
-                    file,
-                    upload_folder,
-                    anuncio_id,
-                )
-                archivos_guardados.append(ruta_absoluta)
+                if current_app.config.get("CLOUDINARY_ENABLED"):
+                    upload_data = upload_media_to_cloudinary(file, anuncio_id)
+                    tipo_media = upload_data["tipo_media"]
+                    ruta_relativa = upload_data["ruta_relativa"]
+                    cloudinary_assets.append({
+                        "public_id": upload_data["public_id"],
+                        "resource_type": upload_data["resource_type"],
+                    })
+                    ruta_absoluta = None
+                else:
+                    tipo_media, ruta_relativa, ruta_absoluta = validate_and_store_media(
+                        file,
+                        upload_folder,
+                        anuncio_id,
+                    )
+                    archivos_guardados.append(ruta_absoluta)
+                    upload_data = {
+                        "public_id": None,
+                        "resource_type": None,
+                        "format": None,
+                        "bytes": None,
+                        "width": None,
+                        "height": None,
+                        "version": None,
+                    }
 
                 es_imagen = tipo_media == "imagen"
                 media = MediaAnuncio(
                     anuncio_id=anuncio_id,
                     tipo_media=tipo_media,
                     ruta_relativa=ruta_relativa,
+                    public_id=upload_data["public_id"],
+                    resource_type=upload_data["resource_type"],
+                    formato=upload_data["format"],
+                    bytes_size=upload_data["bytes"],
+                    width=upload_data["width"],
+                    height=upload_data["height"],
+                    version=str(upload_data["version"]) if upload_data["version"] is not None else None,
                     es_principal=bool(es_imagen and primera_imagen),
                     orden=siguiente_orden if es_imagen else None,
                 )
@@ -1330,9 +1362,15 @@ class AnuncioService:
             AnuncioRepository.rollback()
             _eliminar_archivos(archivos_guardados)
             return _media_error_response(error)
+        except CloudinaryStorageError as error:
+            AnuncioRepository.rollback()
+            _eliminar_archivos(archivos_guardados)
+            _eliminar_assets_cloudinary(cloudinary_assets)
+            return _error_response(error.error_code, error.message)
         except SQLAlchemyError:
             AnuncioRepository.rollback()
             _eliminar_archivos(archivos_guardados)
+            _eliminar_assets_cloudinary(cloudinary_assets)
             return _error_response("DATABASE_ERROR", "No se pudo registrar la media del anuncio.")
 
     @staticmethod
@@ -1413,13 +1451,12 @@ class AnuncioService:
         ]
         _reindexar_imagenes(imagenes_restantes)
 
-        absolute_path = _absolute_media_path(upload_folder, media.ruta_relativa)
         eliminado = {"id": media.id, "tipo_media": media.tipo_media}
 
         try:
             AnuncioRepository.eliminar_media(media)
             AnuncioRepository.flush()
-            absolute_path.unlink()
+            _eliminar_media_persistida(media, upload_folder)
             AnuncioRepository.commit()
             return {
                 "success": True,
@@ -1430,6 +1467,9 @@ class AnuncioService:
                 "error": None,
                 "message": "Media eliminada correctamente.",
             }
+        except CloudinaryStorageError:
+            AnuncioRepository.rollback()
+            return _error_response("FILE_DELETE_ERROR", "No se pudo eliminar el archivo fisico asociado.")
         except FileNotFoundError:
             AnuncioRepository.rollback()
             return _error_response("FILE_DELETE_ERROR", "No se pudo eliminar el archivo fisico asociado.")
@@ -1462,35 +1502,77 @@ class AnuncioService:
             return _error_response("MISSING_FILE", "Debe adjuntar un archivo.")
 
         try:
-            nuevo_tipo, ruta_relativa, ruta_absoluta = validate_and_store_media(
-                file_storage,
-                upload_folder,
-                anuncio_id,
-            )
+            if current_app.config.get("CLOUDINARY_ENABLED"):
+                upload_data = upload_media_to_cloudinary(file_storage, anuncio_id)
+                nuevo_tipo = upload_data["tipo_media"]
+                ruta_relativa = upload_data["ruta_relativa"]
+                ruta_absoluta = None
+            else:
+                nuevo_tipo, ruta_relativa, ruta_absoluta = validate_and_store_media(
+                    file_storage,
+                    upload_folder,
+                    anuncio_id,
+                )
+                upload_data = {
+                    "public_id": None,
+                    "resource_type": None,
+                    "format": None,
+                    "bytes": None,
+                    "width": None,
+                    "height": None,
+                    "version": None,
+                }
         except MediaValidationError as error:
             return _media_error_response(error)
+        except CloudinaryStorageError as error:
+            return _error_response(error.error_code, error.message)
 
         if nuevo_tipo != media.tipo_media:
-            _eliminar_archivos([ruta_absoluta])
+            if ruta_absoluta is not None:
+                _eliminar_archivos([ruta_absoluta])
+            elif upload_data["public_id"]:
+                _eliminar_assets_cloudinary([{
+                    "public_id": upload_data["public_id"],
+                    "resource_type": upload_data["resource_type"],
+                }])
             return _error_response(
                 "INVALID_FILE_TYPE",
                 "El archivo nuevo debe ser del mismo tipo de media que el original.",
             )
 
         ruta_anterior = media.ruta_relativa
-        absolute_old_path = _absolute_media_path(upload_folder, ruta_anterior)
+        public_id_anterior = media.public_id
+        resource_type_anterior = media.resource_type or ("image" if media.tipo_media == "imagen" else "video")
 
         try:
             media.ruta_relativa = ruta_relativa
+            media.public_id = upload_data["public_id"]
+            media.resource_type = upload_data["resource_type"]
+            media.formato = upload_data["format"]
+            media.bytes_size = upload_data["bytes"]
+            media.width = upload_data["width"]
+            media.height = upload_data["height"]
+            media.version = str(upload_data["version"]) if upload_data["version"] is not None else None
             AnuncioRepository.commit()
         except SQLAlchemyError:
             AnuncioRepository.rollback()
-            _eliminar_archivos([ruta_absoluta])
+            if ruta_absoluta is not None:
+                _eliminar_archivos([ruta_absoluta])
+            elif upload_data["public_id"]:
+                _eliminar_assets_cloudinary([{
+                    "public_id": upload_data["public_id"],
+                    "resource_type": upload_data["resource_type"],
+                }])
             return _error_response("DATABASE_ERROR", "No se pudo reemplazar la media.")
 
         try:
-            absolute_old_path.unlink(missing_ok=False)
-        except OSError:
+            _eliminar_media_persistida_por_referencia(
+                ruta_anterior,
+                public_id_anterior,
+                resource_type_anterior,
+                upload_folder,
+            )
+        except (CloudinaryStorageError, OSError, FileNotFoundError):
             current_app.logger.warning(
                 "No se pudo eliminar archivo previo de media anuncio_id=%s media_id=%s ruta=%s",
                 anuncio_id,
@@ -1914,6 +1996,23 @@ def _eliminar_archivos(paths):
             pass
 
 
+def _eliminar_assets_cloudinary(assets):
+    for asset in assets:
+        public_id = asset.get("public_id")
+        if not public_id:
+            continue
+        try:
+            delete_media_from_cloudinary(
+                public_id,
+                asset.get("resource_type"),
+            )
+        except CloudinaryStorageError:
+            current_app.logger.warning(
+                "No se pudo revertir asset de Cloudinary public_id=%s",
+                public_id,
+            )
+
+
 def _json_merge_patch(current_value, patch_value):
     # Replica el comportamiento de JSON_MERGE_PATCH para conservar claves no
     # enviadas y borrar las que lleguen explicitamente en null.
@@ -1949,6 +2048,25 @@ def _absolute_media_path(upload_folder, relative_path):
     if normalized.parts and normalized.parts[0] == "uploads":
         normalized = Path(*normalized.parts[1:])
     return Path(upload_folder) / normalized
+
+
+def _eliminar_media_persistida(media, upload_folder):
+    resource_type = media.resource_type or ("image" if media.tipo_media == "imagen" else "video")
+    _eliminar_media_persistida_por_referencia(
+        media.ruta_relativa,
+        media.public_id,
+        resource_type,
+        upload_folder,
+    )
+
+
+def _eliminar_media_persistida_por_referencia(ruta_relativa, public_id, resource_type, upload_folder):
+    if public_id and current_app.config.get("CLOUDINARY_ENABLED"):
+        delete_media_from_cloudinary(public_id, resource_type)
+        return
+
+    absolute_path = _absolute_media_path(upload_folder, ruta_relativa)
+    absolute_path.unlink(missing_ok=False)
 
 
 def _build_reporter_profiles(report_rows):

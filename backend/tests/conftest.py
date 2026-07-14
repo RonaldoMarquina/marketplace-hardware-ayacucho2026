@@ -25,6 +25,10 @@ def app(tmp_path):
             "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
             "SQLALCHEMY_TRACK_MODIFICATIONS": False,
             "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "CLOUDINARY_CLOUD_NAME": None,
+            "CLOUDINARY_API_KEY": None,
+            "CLOUDINARY_API_SECRET": None,
+            "CLOUDINARY_FOLDER": "hardware-ayacucho/test",
         }
     )
 

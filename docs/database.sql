@@ -1,6 +1,7 @@
 ﻿-- ============================================================
---  HardwareAyacucho - Esquema de Base de Datos MySQL
---  Respaldo consistente del backend implementado hasta HU-21
+-- HardwareAyacucho - Esquema maestro de base de datos
+-- Fuente de verdad para recrear la BD en local o en nube
+-- Compatibilidad objetivo: MySQL / TiDB
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS hardware_ayacucho
@@ -12,6 +13,9 @@ USE hardware_ayacucho;
 SET FOREIGN_KEY_CHECKS = 0;
 
 SET SQL_MODE = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO';
+
+-- Ejecuta este archivo completo cuando necesites crear la base desde cero.
+-- Para una base ya existente, usa solo los ALTER TABLE documentados al final.
 
 -- ------------------------------------------------------------
 -- 1. USUARIOS
@@ -184,21 +188,6 @@ CREATE TABLE anuncios (
     CONSTRAINT chk_precio_positivo CHECK (precio > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Indice funcional para filtrado por spec socket (HU-10, activar si BD > 1000 registros)
--- ALTER TABLE anuncios ADD INDEX idx_spec_socket ((JSON_UNQUOTE(JSON_EXTRACT(especificaciones, '$.socket'))));
-
--- Migraciones para bases ya existentes creadas antes de HU-07 / HU-14.
--- ALTER TABLE anuncios
--- ADD COLUMN reactivaciones_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER estado;
--- ALTER TABLE anuncios
--- ADD COLUMN comprador_id INT UNSIGNED NULL AFTER reactivaciones_count,
--- ADD COLUMN vendido_at DATETIME NULL AFTER comprador_id,
--- ADD INDEX idx_anuncios_comprador (comprador_id),
--- ADD CONSTRAINT fk_anuncios_comprador
---     FOREIGN KEY (comprador_id) REFERENCES usuarios (id)
---     ON DELETE SET NULL ON UPDATE CASCADE;
-
-
 -- ------------------------------------------------------------
 -- 5. MEDIA DE ANUNCIO
 -- HU-06 (carga de imagenes/videos), HU-11 (detalle)
@@ -207,7 +196,14 @@ CREATE TABLE media_anuncio (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     anuncio_id      INT UNSIGNED    NOT NULL,
     tipo_media      ENUM('imagen', 'video') NOT NULL,
-    ruta_relativa   VARCHAR(500)    NOT NULL,               -- relativa, nunca absoluta
+    ruta_relativa   VARCHAR(500)    NOT NULL,               -- URL segura Cloudinary o ruta relativa local
+    public_id       VARCHAR(255)    NULL,                   -- identificador remoto en Cloudinary
+    resource_type   VARCHAR(20)     NULL,                   -- image o video segun proveedor
+    formato         VARCHAR(20)     NULL,                   -- extension/formato reportado por Cloudinary
+    bytes_size      INT UNSIGNED    NULL,                   -- peso del archivo en bytes
+    width           INT UNSIGNED    NULL,                   -- ancho si aplica
+    height          INT UNSIGNED    NULL,                   -- alto si aplica
+    version         VARCHAR(50)     NULL,                   -- version remota para cache busting
     es_principal    TINYINT(1)      NOT NULL DEFAULT 0,     -- solo imagen puede ser principal
     orden           TINYINT UNSIGNED NULL,                  -- solo aplica a imagenes; video = NULL
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -215,12 +211,12 @@ CREATE TABLE media_anuncio (
     PRIMARY KEY (id),
     INDEX idx_media_anuncio      (anuncio_id),
     INDEX idx_media_tipo         (tipo_media),
+    INDEX idx_media_public_id    (public_id),
 
     CONSTRAINT fk_media_anuncio
         FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 
 -- ------------------------------------------------------------
 -- 6. REPORTES DE ANUNCIOS
@@ -259,10 +255,6 @@ CREATE TABLE reportes (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Migraciones para bases ya existentes antes del reporte enriquecido de HU-13.
--- ALTER TABLE reportes
--- ADD COLUMN detalle TEXT NULL AFTER motivo;
-
 CREATE TABLE reporte_evidencias (
     id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     reporte_id      INT UNSIGNED    NOT NULL,
@@ -279,22 +271,6 @@ CREATE TABLE reporte_evidencias (
         FOREIGN KEY (reporte_id) REFERENCES reportes (id)
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Migraciones para bases ya existentes antes de evidencias de reportes.
--- CREATE TABLE reporte_evidencias (
---     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
---     reporte_id INT UNSIGNED NOT NULL,
---     tipo_archivo ENUM('IMAGEN') NOT NULL DEFAULT 'IMAGEN',
---     ruta_relativa VARCHAR(500) NOT NULL,
---     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
---     PRIMARY KEY (id),
---     INDEX idx_reporte_evidencias_reporte (reporte_id),
---     INDEX idx_reporte_evidencias_tipo (tipo_archivo),
---     INDEX idx_reporte_evidencias_created_at (created_at),
---     CONSTRAINT fk_reporte_evidencias_reporte
---         FOREIGN KEY (reporte_id) REFERENCES reportes (id)
---         ON DELETE CASCADE ON UPDATE CASCADE
--- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
 -- ------------------------------------------------------------
@@ -346,45 +322,6 @@ CREATE TABLE apelacion_evidencias (
         FOREIGN KEY (apelacion_id) REFERENCES apelaciones_moderacion (id)
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Migraciones para bases ya existentes antes de apelaciones de moderacion.
--- CREATE TABLE apelaciones_moderacion (
---     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
---     anuncio_id INT UNSIGNED NOT NULL,
---     usuario_id INT UNSIGNED NOT NULL,
---     mensaje TEXT NOT NULL,
---     estado ENUM('PENDIENTE', 'ACEPTADA', 'RECHAZADA') NOT NULL DEFAULT 'PENDIENTE',
---     respuesta_admin TEXT NULL,
---     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
---     resolved_at DATETIME NULL,
---     PRIMARY KEY (id),
---     INDEX idx_apelaciones_anuncio (anuncio_id),
---     INDEX idx_apelaciones_usuario (usuario_id),
---     INDEX idx_apelaciones_estado (estado),
---     INDEX idx_apelaciones_created_at (created_at),
---     INDEX idx_apelaciones_resolved_at (resolved_at),
---     CONSTRAINT fk_apelaciones_anuncio
---         FOREIGN KEY (anuncio_id) REFERENCES anuncios (id)
---         ON DELETE CASCADE ON UPDATE CASCADE,
---     CONSTRAINT fk_apelaciones_usuario
---         FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
---         ON DELETE CASCADE ON UPDATE CASCADE
--- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
---
--- CREATE TABLE apelacion_evidencias (
---     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
---     apelacion_id INT UNSIGNED NOT NULL,
---     tipo_archivo ENUM('IMAGEN') NOT NULL DEFAULT 'IMAGEN',
---     ruta_relativa VARCHAR(500) NOT NULL,
---     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
---     PRIMARY KEY (id),
---     INDEX idx_apelacion_evidencias_apelacion (apelacion_id),
---     INDEX idx_apelacion_evidencias_tipo (tipo_archivo),
---     INDEX idx_apelacion_evidencias_created_at (created_at),
---     CONSTRAINT fk_apelacion_evidencias_apelacion
---         FOREIGN KEY (apelacion_id) REFERENCES apelaciones_moderacion (id)
---         ON DELETE CASCADE ON UPDATE CASCADE
--- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
 -- ------------------------------------------------------------

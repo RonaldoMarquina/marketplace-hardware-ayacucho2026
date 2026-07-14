@@ -559,6 +559,79 @@ def test_reemplazar_media_actualiza_ruta_y_elimina_archivo_anterior(client, app)
         assert media_db.ruta_relativa == body["data"]["ruta_relativa"]
 
 
+def test_reemplazar_media_con_cloudinary_actualiza_metadatos_y_elimina_asset_anterior(client, app, monkeypatch):
+    app.config["CLOUDINARY_ENABLED"] = True
+    app.extensions["cloudinary_configured"] = True
+
+    deleted_assets = []
+
+    def fake_upload(_file_storage, anuncio_id):
+        return {
+            "tipo_media": "imagen",
+            "ruta_relativa": f"https://res.cloudinary.com/demo/image/upload/v456/anuncios/{anuncio_id}/nueva.png",
+            "public_id": f"anuncios/{anuncio_id}/nueva",
+            "resource_type": "image",
+            "format": "png",
+            "bytes": 4096,
+            "width": 1280,
+            "height": 720,
+            "version": "456",
+        }
+
+    def fake_delete(public_id, resource_type):
+        deleted_assets.append((public_id, resource_type))
+        return {"result": "ok"}
+
+    monkeypatch.setattr("app.services.anuncio_service.upload_media_to_cloudinary", fake_upload)
+    monkeypatch.setattr("app.services.anuncio_service.delete_media_from_cloudinary", fake_delete)
+
+    with app.app_context():
+        usuario = crear_usuario("editor_cloudinary@gmail.com")
+        anuncio = crear_anuncio(usuario)
+        token = token_para(usuario)
+        media = MediaAnuncio(
+            anuncio_id=anuncio.id,
+            tipo_media="imagen",
+            ruta_relativa="https://res.cloudinary.com/demo/image/upload/v123/anuncios/1/vieja.png",
+            public_id=f"anuncios/{anuncio.id}/vieja",
+            resource_type="image",
+            formato="png",
+            bytes_size=1000,
+            width=400,
+            height=400,
+            version="123",
+            es_principal=True,
+            orden=0,
+        )
+        db.session.add(media)
+        db.session.commit()
+        anuncio_id = anuncio.id
+        media_id = media.id
+
+    response = client.put(
+        f"/api/v1/anuncios/{anuncio_id}/media/{media_id}",
+        data={"media": media_file(WEBP_BYTES, "nueva.webp")},
+        content_type="multipart/form-data",
+        headers=headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["data"]["ruta_relativa"].startswith("https://res.cloudinary.com/")
+    assert body["data"]["public_id"] == f"anuncios/{anuncio_id}/nueva"
+    assert deleted_assets == [(f"anuncios/{anuncio_id}/vieja", "image")]
+
+    with app.app_context():
+        media_db = db.session.get(MediaAnuncio, media_id)
+        assert media_db.public_id == f"anuncios/{anuncio_id}/nueva"
+        assert media_db.resource_type == "image"
+        assert media_db.formato == "png"
+        assert media_db.bytes_size == 4096
+        assert media_db.width == 1280
+        assert media_db.height == 720
+        assert media_db.version == "456"
+
+
 def test_reemplazar_media_con_tipo_distinto_retorna_422(client, app):
     with app.app_context():
         usuario = crear_usuario()

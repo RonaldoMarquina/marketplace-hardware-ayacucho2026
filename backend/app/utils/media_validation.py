@@ -55,6 +55,19 @@ def classify_media(file_storage):
 
 
 def validate_and_store_media(file_storage, upload_folder, anuncio_id):
+    tipo_media, extension, _file_size = validate_media_file(file_storage)
+    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
+    filename = f"{uuid4().hex}-{timestamp}.{extension}"
+    relative_path = Path("uploads") / "anuncios" / str(anuncio_id) / filename
+    absolute_folder = Path(upload_folder) / "anuncios" / str(anuncio_id)
+    absolute_folder.mkdir(parents=True, exist_ok=True)
+    absolute_path = absolute_folder / filename
+    file_storage.save(absolute_path)
+
+    return tipo_media, str(relative_path).replace("\\", "/"), absolute_path
+
+
+def validate_media_file(file_storage):
     tipo_media, extension = classify_media(file_storage)
     max_size = MAX_IMAGE_SIZE if tipo_media == "imagen" else MAX_VIDEO_SIZE
 
@@ -82,15 +95,7 @@ def validate_and_store_media(file_storage, upload_folder, anuncio_id):
             error_code="INVALID_FILE_TYPE",
         )
 
-    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
-    filename = f"{uuid4().hex}-{timestamp}.{extension}"
-    relative_path = Path("uploads") / "anuncios" / str(anuncio_id) / filename
-    absolute_folder = Path(upload_folder) / "anuncios" / str(anuncio_id)
-    absolute_folder.mkdir(parents=True, exist_ok=True)
-    absolute_path = absolute_folder / filename
-    file_storage.save(absolute_path)
-
-    return tipo_media, str(relative_path).replace("\\", "/"), absolute_path
+    return tipo_media, extension, file_size
 
 
 def _valid_real_signature(header, extension, tipo_media):

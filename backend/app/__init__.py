@@ -10,6 +10,8 @@ from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
 
+from app.utils.cloudinary_storage import init_cloudinary
+
 
 db = SQLAlchemy()
 jwt = JWTManager()
@@ -96,6 +98,13 @@ def _configure_app(app, backend_dir, testing_mode, production_mode):
     app.config["SMTP_USE_TLS"] = _env_flag("SMTP_USE_TLS", True)
     app.config["SMTP_USE_SSL"] = _env_flag("SMTP_USE_SSL", False)
     app.config["SMTP_TIMEOUT_SECONDS"] = int(os.getenv("SMTP_TIMEOUT_SECONDS", "15"))
+    app.config["CLOUDINARY_CLOUD_NAME"] = os.getenv("CLOUDINARY_CLOUD_NAME")
+    app.config["CLOUDINARY_API_KEY"] = os.getenv("CLOUDINARY_API_KEY")
+    app.config["CLOUDINARY_API_SECRET"] = os.getenv("CLOUDINARY_API_SECRET")
+    app.config["CLOUDINARY_FOLDER"] = os.getenv(
+        "CLOUDINARY_FOLDER",
+        "hardware-ayacucho",
+    )
 
 
 def _register_blueprints(app):
@@ -138,6 +147,8 @@ def create_app(test_config=None):
 
     app.extensions.setdefault("mail_outbox", [])
     _validate_email_config(app)
+    _validate_cloudinary_config(app)
+    init_cloudinary(app)
 
     db.init_app(app)
     jwt.init_app(app)
@@ -186,6 +197,28 @@ def _validate_email_config(app):
         raise RuntimeError(
             "SMTP_USE_TLS y SMTP_USE_SSL no pueden estar activos a la vez."
         )
+
+
+def _validate_cloudinary_config(app):
+    cloudinary_keys = (
+        "CLOUDINARY_CLOUD_NAME",
+        "CLOUDINARY_API_KEY",
+        "CLOUDINARY_API_SECRET",
+    )
+    configured = [key for key in cloudinary_keys if app.config.get(key)]
+
+    if not configured:
+        app.config["CLOUDINARY_ENABLED"] = False
+        return
+
+    missing = [key for key in cloudinary_keys if not app.config.get(key)]
+    if missing:
+        raise RuntimeError(
+            "La configuracion de Cloudinary es incompleta. "
+            "Falta definir: " + ", ".join(missing) + "."
+        )
+
+    app.config["CLOUDINARY_ENABLED"] = True
 
 
 def _registrar_manejadores_jwt(jwt_manager):
