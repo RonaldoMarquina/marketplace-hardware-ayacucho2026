@@ -38,16 +38,24 @@ la instancia remota.
 Validaciones realizadas sobre la BD en nube:
 
 - registro de cuentas desde el frontend
-- envio de correo de verificacion
-- verificacion de cuentas
 - inicio de sesion
 - elevacion controlada de un usuario a `ADMIN`
 - acceso al panel administrativo
 - creacion de anuncios como usuario estandar
 - creacion de anuncios como tienda
+- persistencia de metadatos de imagenes con soporte Cloudinary
 
 Estas evidencias confirman que la integracion `backend + SQLAlchemy + TiDB`
 responde correctamente para los flujos funcionales principales ya probados.
+
+Nota de cierre de iteracion:
+
+- el registro crea correctamente usuarios y tokens en TiDB
+- el flujo de verificacion por correo ya funciona con proveedor externo real
+- la verificacion cambia el estado del usuario en la BD remota como se espera
+- si una prueba falla a mitad del flujo, pueden quedar cuentas en
+  `PENDIENTE_VERIFICACION`; en ese caso se pueden limpiar junto con sus tokens
+  relacionados antes de repetir pruebas
 
 ## Importacion del esquema en nube
 
@@ -81,6 +89,9 @@ Notas:
 - si la contrasena contiene caracteres especiales, debe codificarse para URL
 - en despliegue, las credenciales reales deben quedar solo en variables de
   entorno del proveedor y nunca en el repositorio
+- para pruebas repetidas de correo, puede ser necesario eliminar usuarios en
+  estado `PENDIENTE_VERIFICACION` y sus filas relacionadas en
+  `tokens_verificacion` cuando se quiera volver a registrar el mismo correo
 
 ## Tablas principales
 
@@ -175,6 +186,8 @@ como valido `database.sql`.
 - usar Cloudinary como almacenamiento de imagenes y videos para despliegue
   publico
 - no insertar usuarios manuales con contrasena en texto plano
+- mantener el flujo real de verificacion por correo para la demo publica,
+  sabiendo que algunos mensajes pueden llegar inicialmente a `Spam`
 - para cuentas administrativas, preferir:
   1. registro real desde frontend
   2. verificacion real por correo

@@ -61,6 +61,25 @@ El backend ya soporta tres tipos principales de correo:
 - recuperacion de contrasena
 - aviso al vendedor o tienda cuando un anuncio recibe un reporte
 
+Modos de entrega soportados actualmente:
+
+- `testing`
+- `log`
+- `smtp`
+- `resend_api`
+- `brevo_api`
+
+Estado operativo al cierre de esta iteracion:
+
+- `smtp` quedo implementado pero `Render` no logro abrir la conexion saliente
+  al proveedor
+- `resend_api` quedo implementado como fallback HTTPS para despliegue
+- el proveedor `Resend` respondio `HTTP 403 / error code 1010`, por lo que no
+  quedo como solucion final
+- `brevo_api` quedo como modo operativo real en produccion publica
+- el remitente final usa dominio autenticado:
+  - `no-reply@hardwareayacucho.shop`
+
 ## Convenciones clave
 
 - Backend Python: `snake_case`
@@ -91,6 +110,10 @@ SMTP_PASSWORD
 SMTP_USE_TLS
 SMTP_USE_SSL
 SMTP_TIMEOUT_SECONDS
+RESEND_API_KEY
+RESEND_API_BASE_URL
+BREVO_API_KEY
+BREVO_API_BASE_URL
 CLOUDINARY_CLOUD_NAME
 CLOUDINARY_API_KEY
 CLOUDINARY_API_SECRET
