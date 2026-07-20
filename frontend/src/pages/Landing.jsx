@@ -363,7 +363,7 @@ const Landing = () => {
             </div>
 
             <p className="mt-6 text-xs text-slate-400">
-              © 2026 HardwareAyacucho. Proyecto universitario - UNSCH.
+              © 2026 HardwareAyacucho.
             </p>
           </SectionShell>
         </div>
